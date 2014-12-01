@@ -12,6 +12,7 @@
             <outputDirectory>/</outputDirectory>
             <includes>
                 <include>README.md</include>
+                <include>LICENCE</include>
                 <include>config.yml</include>
             </includes>
         </fileSet>
