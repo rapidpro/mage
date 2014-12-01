@@ -1,0 +1,82 @@
+#
+# Configuration for Message Mage
+#
+# The following environment variables should be defined:
+#  * PRODUCTION - whether this is a production instance (1) or not (0)
+#  * DATABASE_URL - Django format database connection URL
+#  * REDIS_HOST - Redis cache host
+#  * REDIS_DATABASE - Redis database number
+#  * TEMBA_HOST - Temba host name
+#  * TEMBA_AUTH_TOKEN - authentication token for the Temba API
+#  * TWITTER_API_KEY - public key for Twitter API
+#  * TWITTER_API_SECRET - secret token for Twitter API
+#  * SEGMENTIO_WRITE_KEY - write key for segment.io
+#  * SENTRY_DSN - URL for Sentry error reporting
+#  * LIBRATO_EMAIL - Librato email/login
+#  * LIBRATO_API_TOKEN - Librato API token
+#
+
+general:
+    production: ${PRODUCTION}
+
+server:
+    minThreads: 8
+    maxThreads: 64
+    applicationConnectors:
+      - type: http
+        port: 8026
+    adminConnectors:
+      - type: http
+        port: 8028
+
+database:
+    # the name of your JDBC driver
+    driverClass: org.postgresql.Driver
+
+    # the URL (same format as Django)
+    fullUrl: ${DATABASE_URL}
+
+    # any properties specific to your JDBC driver:
+    properties:
+        charSet: UTF-8
+
+    # the maximum amount of time to wait on an empty pool before throwing an exception
+    maxWaitForConnection: 1s
+
+    # the SQL query to run when validating a connection's liveness
+    validationQuery: "/* MyService Health Check */ SELECT 1"
+
+    # the minimum number of connections to keep open
+    minSize: 8
+
+    # the maximum number of connections to keep open
+    maxSize: 32
+
+    # whether or not idle connections should be validated
+    checkConnectionWhileIdle: false
+
+logging:
+    appenders:
+      - type: console
+        threshold: INFO
+        target: stdout
+    loggers:
+        "com.sun.jersey.api.container.filter.LoggingFilter": DEBUG
+
+redis:
+    host: ${REDIS_HOST}
+    database: ${REDIS_DATABASE}
+
+temba:
+    apiUrl: https://${TEMBA_HOST}/api/v1
+    authToken: ${TEMBA_AUTH_TOKEN}
+
+twitter:
+    apiKey: ${TWITTER_API_KEY}
+    apiSecret: ${TWITTER_API_SECRET}
+
+monitoring:
+    segmentioWriteKey: ${SEGMENTIO_WRITE_KEY}
+    sentryDsn: ${SENTRY_DSN}
+    libratoEmail: ${LIBRATO_EMAIL}
+    libratoApiToken: ${LIBRATO_API_TOKEN}

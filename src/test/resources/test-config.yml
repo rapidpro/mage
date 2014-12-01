@@ -1,0 +1,2 @@
+somePlace: ${HOME}/x
+someUser: ${ USER }

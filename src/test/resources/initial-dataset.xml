@@ -1,0 +1,74 @@
+<!--
+Testing initial dataset
+
+Ids are negative to avoid conflicts with records inserted during tests. Each id is two digits - first differentiates
+the table, and second identifies the item. This minimizes possible confusion of ids during tests.
+
+-->
+<dataset>
+    <auth_user id="-1" password="none" last_login="2013-02-26 14:17:19.0" is_superuser="false" username="AnonymousUser" first_name="Anon" last_name="Anon" email="anon@example.com" is_staff="false" is_active="true" date_joined="2013-02-26 14:15:19.0" />
+    <auth_user id="-2" password="none" last_login="2013-02-26 14:17:19.0" is_superuser="false" username="Joe Test" first_name="Test" last_name="User" email="test2@example.com" is_staff="false" is_active="true" date_joined="2013-02-26 14:16:19.0" />
+    <auth_user id="-3" password="none" last_login="2013-02-26 14:17:19.0" is_superuser="false" username="mage" first_name="Message" last_name="Mage" email="code@nyaruka.com" is_staff="false" is_active="true" date_joined="2013-02-26 14:17:19.0" />
+
+    <!-- Org #1 with a valid twilio config -->
+    <orgs_org id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test org #1" msg_last_viewed="2013-08-09 14:43:46.925" webhook_events="0" plan="FREE" plan_start="2013-08-09 14:43:46.925" timezone="Africa/Johannesburg" flows_last_viewed="2013-08-10 15:11:26.370" date_format="D" config="{&quot;ACCOUNT_SID&quot;:&quot;ACe0da56e18798f1bdd9569def026e2ee7&quot;,&quot;ACCOUNT_TOKEN&quot;:&quot;6abb5cfa9f8b9018516cb6159088ef8d&quot;}" is_anon="false" />
+
+    <!-- Org #2 with no config -->
+    <orgs_org id="-12" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test org #2" msg_last_viewed="2013-08-09 14:43:46.925" webhook_events="0" plan="FREE" plan_start="2013-08-09 14:43:46.925" timezone="Africa/Johannesburg" flows_last_viewed="2013-08-10 15:11:26.370" date_format="D" config="{}" is_anon="false" />
+
+    <!-- Make user #2 an admin for org #1 -->
+    <orgs_org_administrators id="-1" org_id="-11" user_id="-2" />
+
+    <!-- Add topup for org #1 with 5 credits (org #1 has 3 messages so that leaves 2 remaining credits) -->
+    <orgs_topup id="-31" is_active="true" org_id="-11" credits="5" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2090-01-01 08:21:32.0" />
+
+    <!-- Add topup for org #1 with 1 credit -->
+    <orgs_topup id="-32" is_active="true" org_id="-11" credits="1" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2100-01-01 08:21:32.0" />
+
+    <!-- Add topup for org #2 -->
+    <orgs_topup id="-33" is_active="true" org_id="-12" credits="100" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2050-03-04 08:21:32.0" />
+
+    <!-- Channel (type = Twilio, role = RECEIVE) for org #1 -->
+    <channels_channel id="-41" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #1" address="+250111111111" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="T" role="R" uuid="A6977A60-77EE-46FD-BFFA-AE58A65150DA" />
+
+    <!-- Channel (type = Nexmo, role = RECEIVE, inactive) for org #1 -->
+    <channels_channel id="-42" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #2" address="+250222222222" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="NX" role="R" uuid="B8E3F824-D4B3-4A59-91E1-45BFF6D74263" />
+
+    <!-- Channel (type = External, role = RECEIVE) for org #1 -->
+    <channels_channel id="-43" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #3" address="+250333333333" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="EX" role="R" uuid="788B08AF-405C-43EF-9D40-7535CFA7663E" />
+
+    <!-- Channel (type = Twitter, role = RECEIVE, SEND) for org #1 -->
+    <channels_channel id="-44" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Twitter channel" address="billy_bob" last_seen="2013-12-25 17:58:32.829" channel_type="TT" role="SR" uuid="C5E00DFA-3477-49B7-8070-BE87EA69AD54" config="{&quot;handle_id&quot;:567890,&quot;oauth_token&quot;:&quot;abcde&quot;,&quot;oauth_token_secret&quot;:&quot;12345&quot;,&quot;auto_follow&quot;:true}" />
+
+    <!-- Channel (type = Vumi, role = RECEIVE, SEND) for org #2 -->
+    <channels_channel id="-45" org_id="-12" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Vumi channel" address="+250444444444" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="VM" role="SR" uuid="C4C92278-586E-4B38-93C4-D413FEF43FA2" />
+
+    <!-- Channel (type = Twitter, role = RECEIVE, SEND) for org #2 -->
+    <channels_channel id="-46" org_id="-12" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Twitter channel" address="jimmy_joe" last_seen="2013-12-25 17:58:32.829" channel_type="TT" role="SR" uuid="727D294D-E393-47F6-BBAD-0C0EF70593F2" config="{&quot;handle_id&quot;:678901,&quot;oauth_token&quot;:&quot;bcdef&quot;,&quot;oauth_token_secret&quot;:&quot;23456&quot;}" />
+
+    <!-- Add contact #1 to org #1 (last use channel #1) -->
+    <contacts_contact id="-51" is_active="true" org_id="-11" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" is_archived="false" name="Nicolas" fields="nickname => 'Nic'" is_test="false" status="N" uuid="226456A5-22FF-476E-AC5D-BF9A87A32EF7" />
+    <contacts_contacturn id="-61" contact_id="-51" org_id="-11" urn="tel:+250735250222" scheme="tel" priority="50" path="+250735250222" channel_id="-41"  />
+
+    <!-- Add contact #2 to org #2 (no channel or name) -->
+    <contacts_contact id="-52" is_active="true" org_id="-12" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" is_archived="false" fields="nickname => 'Eric'" is_test="false" status="N" uuid="1AAFAD87-6859-458B-81DF-063D9615121C" />
+    <contacts_contacturn id="-62" contact_id="-52" org_id="-12" urn="tel:+250783835665" scheme="tel" priority="50" path="+250783835665" />
+
+    <!-- A detached URN -->
+    <contacts_contacturn id="-63" org_id="-12" urn="twitter:billy_bob" scheme="twitter" path="billy_bob" priority="90" />
+
+    <!-- Outgoing messages sent from Twilio channel with a broadcast -->
+    <msgs_broadcast id="-71" is_active="true" text="Testing" status="Q" org_id="-11" created_by_id="-2" created_on="2014-04-04 10:41:10.601" modified_by_id="-2" modified_on="2014-04-04 10:41:10.601" />
+    <msgs_msg id="-81" channel_id="-41" contact_id="-51" contact_urn_id="-61" org_id="-11" text="Testing" direction="O" status="W" broadcast_id="-71" external_id="SMS81" created_on="2014-01-22 23:25:01.836" sent_on="2014-01-22 23:25:02.181" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-31" priority="500" />
+    <msgs_msg id="-82" channel_id="-41" contact_id="-51" contact_urn_id="-61" org_id="-11" text="Testing" direction="O" status="S" broadcast_id="-71" external_id="SMS82" created_on="2014-01-22 23:26:01.836" sent_on="2014-01-22 23:26:02.181" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-31" priority="500" />
+    <msgs_msg id="-83" channel_id="-41" contact_id="-51" contact_urn_id="-61" org_id="-11" text="Testing" direction="O" status="D" broadcast_id="-71" external_id="SMS83" created_on="2014-01-22 23:27:01.836" sent_on="2014-01-22 23:27:02.181" delivered_on="2014-01-22 23:37:09.335" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-31" priority="500" />
+
+    <!-- Outgoing messages sent from Vumi channel with a broadcast -->
+    <msgs_broadcast id="-72" is_active="true" text="Testing" status="Q" org_id="-11" created_by_id="-2" created_on="2014-04-04 10:41:10.601" modified_by_id="-2" modified_on="2014-04-04 10:41:10.601" />
+    <msgs_msg id="-84" channel_id="-45" contact_id="-51" contact_urn_id="-61" org_id="-12" text="Testing" direction="O" status="W" broadcast_id="-72" external_id="SMS84" created_on="2014-01-22 23:28:01.836" sent_on="2014-01-22 23:28:02.181" delivered_on="2014-01-22 23:38:09.335" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-33" priority="500" />
+    <msgs_msg id="-85" channel_id="-45" contact_id="-51" contact_urn_id="-61" org_id="-12" text="Testing" direction="O" status="S" broadcast_id="-72" external_id="SMS85" created_on="2014-01-22 23:29:01.836" sent_on="2014-01-22 23:29:02.181" delivered_on="2014-01-22 23:39:09.335" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-33" priority="500" />
+
+    <!-- Incoming SMS received on Vumi -->
+    <msgs_msg id="-86" channel_id="-45" contact_id="-51" contact_urn_id="-61" org_id="-12" text="Testing in" direction="I" status="P" created_on="2014-01-22 23:25:01.836" sent_on="2014-01-22 23:25:02.181" delivered_on="2014-01-22 23:25:09.335" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-33" priority="500" />-->
+
+</dataset>
