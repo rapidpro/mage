@@ -1,4 +1,4 @@
-RapidPRO Message Mage
+RapidPro Message Mage
 =====================
 
 High performance [Dropwizard](https://dropwizard.github.io/dropwizard) based webserver for receiving incoming messages on behalf of [RapidPro](https://github.com/rapidpro/rapidpro).
