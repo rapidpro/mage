@@ -2,12 +2,12 @@ package io.rapidpro.mage.test;
 
 import io.rapidpro.mage.resource.BaseResource;
 import io.rapidpro.mage.util.JsonUtils;
-import com.sun.jersey.api.client.WebResource;
 import io.dropwizard.testing.junit.ResourceTestRule;
 import org.junit.Ignore;
 import org.junit.Rule;
 
 import javax.ws.rs.Path;
+import javax.ws.rs.client.WebTarget;
 
 /**
  * Base class for resource tests
@@ -33,7 +33,7 @@ public abstract class BaseResourceTest<R extends BaseResource> extends BaseServi
      * Creates a client web resource to the resource's path
      * @return the web resource
      */
-    protected WebResource resourceRequest() {
+    protected WebTarget resourceRequest() {
         return resourceRequest("");
     }
 
@@ -42,8 +42,8 @@ public abstract class BaseResourceTest<R extends BaseResource> extends BaseServi
      * @param path additional path
      * @return the web resource
      */
-    protected WebResource resourceRequest(String path) {
-        return m_resourceRule.client().resource(m_resourcePath).path(path);
+    protected WebTarget resourceRequest(String path) {
+        return m_resourceRule.client().target(m_resourcePath).path(path);
     }
 
     public String getResourcePath() {

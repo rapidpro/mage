@@ -2,8 +2,9 @@ package io.rapidpro.mage.temba;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.rapidpro.mage.test.BaseMageTest;
-import com.sun.jersey.api.representation.Form;
 import org.junit.Test;
+
+import javax.ws.rs.core.Form;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
@@ -22,25 +23,25 @@ public class TembaClientsTest extends BaseMageTest {
         TembaRequest request1 = TembaRequest.newHandleMessage(345, false);
         Form form1 = TembaClients.buildForm(request1);
 
-        assertThat(form1.keySet(), hasSize(2));
-        assertThat(form1.getFirst("message_id"), is("345"));
-        assertThat(form1.getFirst("new_contact"), is("false"));
+        assertThat(form1.asMap().keySet(), hasSize(2));
+        assertThat(form1.asMap().getFirst("message_id"), is("345"));
+        assertThat(form1.asMap().getFirst("new_contact"), is("false"));
 
         TembaRequest request2 = TembaRequest.newFollowNotification(123, 456, true);
         Form form2 = TembaClients.buildForm(request2);
 
-        assertThat(form2.keySet(), hasSize(3));
-        assertThat(form2.getFirst("channel_id"), is("123"));
-        assertThat(form2.getFirst("contact_urn_id"), is("456"));
-        assertThat(form2.getFirst("new_contact"), is("true"));
+        assertThat(form2.asMap().keySet(), hasSize(3));
+        assertThat(form2.asMap().getFirst("channel_id"), is("123"));
+        assertThat(form2.asMap().getFirst("contact_urn_id"), is("456"));
+        assertThat(form2.asMap().getFirst("new_contact"), is("true"));
 
         TestRequest request3 = new TestRequest();
         request3.setSerialized("abc");
         request3.setNotSerialized("xyz");
         Form form3 = TembaClients.buildForm(request3);
 
-        assertThat(form3.keySet(), hasSize(1));
-        assertThat(form3.getFirst("serialized"), is("abc"));
+        assertThat(form3.asMap().keySet(), hasSize(1));
+        assertThat(form3.asMap().getFirst("serialized"), is("abc"));
     }
 
     public class TestRequest extends TembaRequest {

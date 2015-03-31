@@ -1,10 +1,10 @@
 package io.rapidpro.mage.test;
 
 import io.rapidpro.mage.api.MessageEvent;
-import com.sun.jersey.api.client.ClientResponse;
 import org.junit.Assert;
 import org.junit.Ignore;
 
+import javax.ws.rs.core.Response;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -74,10 +74,10 @@ public class TestUtils {
      * @param result the expected event result
      * @return the messageId (may be null)
      */
-    public static Integer assertResponse(ClientResponse response, int status, MessageEvent.Result result) {
+    public static Integer assertResponse(Response response, int status, MessageEvent.Result result) {
         assertThat(response.getStatusInfo().getStatusCode(), is(status));
 
-        MessageEvent event = response.getEntity(MessageEvent.class);
+        MessageEvent event = response.readEntity(MessageEvent.class);
         assertThat(event.getResult(), is(result));
 
         // if error, check description is non-null

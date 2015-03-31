@@ -9,13 +9,14 @@ import io.rapidpro.mage.test.BaseResourceTest;
 import io.rapidpro.mage.test.TestUtils;
 import io.rapidpro.mage.util.JsonUtils;
 import io.rapidpro.mage.util.MageUtils;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.representation.Form;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 import com.twilio.sdk.TwilioUtils;
 import org.junit.Test;
 
-import javax.ws.rs.core.MultivaluedMap;
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.WebTarget;
+import javax.ws.rs.core.Form;
+import javax.ws.rs.core.Response;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -38,14 +39,14 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
     @Test
     public void post_received_shouldReturn200() throws Exception {
         Form form = new Form();
-        form.putSingle("From", "+250735250222");
-        form.putSingle("To", "+250111111111"); // twilio channel for org #1
-        form.putSingle("Body", "Testing");
+        form.param("From", "+250735250222");
+        form.param("To", "+250111111111"); // twilio channel for org #1
+        form.param("Body", "Testing");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "received");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "received");
 
-        ClientResponse response = requestWithSignature(query, form);
+        Response response = requestWithSignature(query, form);
 
         int msgId = TestUtils.assertResponse(response, 200, MessageEvent.Result.CREATED);
 
@@ -54,11 +55,11 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
         assertThat(sms, hasEntry("direction", "I"));
 
         // another message to check fetching of the incoming context from cache
-        form.putSingle("From", "+250735250333");
-        form.putSingle("To", "+250111111111"); // twilio channel for org #1
-        form.putSingle("Body", "Testing again");
-        query = new MultivaluedMapImpl();
-        query.putSingle("action", "received");
+        form.param("From", "+250735250333");
+        form.param("To", "+250111111111"); // twilio channel for org #1
+        form.param("Body", "Testing again");
+        query = new LinkedHashMap<>();
+        query.put("action", "received");
         response = requestWithSignature(query, form);
         assertThat(response.getStatusInfo().getStatusCode(), is(200));
     }
@@ -66,14 +67,14 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
     @Test
     public void post_received_badSignature_shouldReturn400() throws Exception {
         Form form = new Form();
-        form.putSingle("From", "+250735250222");
-        form.putSingle("To", "+250111111111"); // twilio channel for org #1
-        form.putSingle("Body", "Testing");
+        form.param("From", "+250735250222");
+        form.param("To", "+250111111111"); // twilio channel for org #1
+        form.param("Body", "Testing");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "received");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "received");
 
-        ClientResponse response = requestWithInvalidSignature(query, form);
+        Response response = requestWithInvalidSignature(query, form);
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
@@ -81,14 +82,14 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
     @Test
     public void post_received_numberWithNoChannel_shouldReturn400() {
         Form form = new Form();
-        form.putSingle("From", "+250735250222");
-        form.putSingle("To", "+250000000000"); // no associated channel
-        form.putSingle("Body", "Testing");
+        form.param("From", "+250735250222");
+        form.param("To", "+250000000000"); // no associated channel
+        form.param("Body", "Testing");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "received");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "received");
 
-        ClientResponse response = requestWithSignature(query, form);
+        Response response = requestWithSignature(query, form);
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
@@ -98,14 +99,14 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
         executeSql("UPDATE " + Table.ORG + " SET config = NULL WHERE id = -11");
 
         Form form = new Form();
-        form.putSingle("From", "+250735250222");
-        form.putSingle("To", "+250111111111"); // twilio channel for org #1
-        form.putSingle("Body", "Testing");
+        form.param("From", "+250735250222");
+        form.param("To", "+250111111111"); // twilio channel for org #1
+        form.param("Body", "Testing");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "received");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "received");
 
-        ClientResponse response = requestWithSignature(query, form);
+        Response response = requestWithSignature(query, form);
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
@@ -113,13 +114,13 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
     @Test
     public void post_callback_sent_shouldRequestMessageUpdateToSent() throws Exception {
         Form form = new Form();
-        form.putSingle("SmsStatus", "sent");
+        form.param("SmsStatus", "sent");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "callback");
-        query.putSingle("id", "-81");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "callback");
+        query.put("id", "-81");
 
-        ClientResponse response = requestWithSignature(query, form);
+        Response response = requestWithSignature(query, form);
 
         int msgId = TestUtils.assertResponse(response, 200, MessageEvent.Result.UPDATED);
 
@@ -132,13 +133,13 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
     @Test
     public void post_callback_failed_shouldRequestMessageUpdateToFailed() throws Exception {
         Form form = new Form();
-        form.putSingle("SmsStatus", "failed");
+        form.param("SmsStatus", "failed");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "callback");
-        query.putSingle("id", "-81");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "callback");
+        query.put("id", "-81");
 
-        ClientResponse response = requestWithSignature(query, form);
+        Response response = requestWithSignature(query, form);
 
         int msgId = TestUtils.assertResponse(response, 200, MessageEvent.Result.UPDATED);
 
@@ -151,13 +152,13 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
     @Test
     public void post_callback_badSignature_shouldReturn400() throws Exception {
         Form form = new Form();
-        form.putSingle("SmsStatus", "sent");
+        form.param("SmsStatus", "sent");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "callback");
-        query.putSingle("id", "-81");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "callback");
+        query.put("id", "-81");
 
-        ClientResponse response = requestWithInvalidSignature(query, form);
+        Response response = requestWithInvalidSignature(query, form);
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
 
@@ -168,13 +169,13 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
     @Test
     public void post_callback_nonExistentMessage_shouldReturn400() throws Exception {
         Form form = new Form();
-        form.putSingle("SmsStatus", "sent");
+        form.param("SmsStatus", "sent");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "callback");
-        query.putSingle("id", "13");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "callback");
+        query.put("id", "13");
 
-        ClientResponse response = requestWithSignature(query, form);
+        Response response = requestWithSignature(query, form);
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
@@ -184,13 +185,13 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
         executeSql("UPDATE " + Table.ORG + " SET config = NULL WHERE id = -11");
 
         Form form = new Form();
-        form.putSingle("SmsStatus", "failed");
+        form.param("SmsStatus", "failed");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "callback");
-        query.putSingle("id", "-81");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "callback");
+        query.put("id", "-81");
 
-        ClientResponse response = requestWithSignature(query, form);
+        Response response = requestWithSignature(query, form);
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
@@ -200,23 +201,23 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
         executeSql("UPDATE " + Table.ORG + " SET config = '{\"foo\":\"bar\"}' WHERE id = -11");
 
         Form form = new Form();
-        form.putSingle("SmsStatus", "failed");
+        form.param("SmsStatus", "failed");
 
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "callback");
-        query.putSingle("id", "-81");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "callback");
+        query.put("id", "-81");
 
-        ClientResponse response = requestWithSignature(query, form);
+        Response response = requestWithSignature(query, form);
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
 
     @Test
     public void post_unknownaction_shouldReturn400() throws Exception {
-        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
-        query.putSingle("action", "xxxx");
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("action", "xxxx");
 
-        ClientResponse response = requestWithSignature(query, new Form());
+        Response response = requestWithSignature(query, new Form());
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
@@ -227,16 +228,19 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
      * @param form the form parameters
      * @return the response
      */
-    protected ClientResponse requestWithSignature(MultivaluedMap<String, String> query, Form form) {
-        String url = getResourcePath() + "?" + query.keySet().stream().map(k -> k + "=" + query.getFirst(k)).collect(Collectors.joining("&"));
+    protected Response requestWithSignature(Map<String, String> query, Form form) {
+        String url = getResourcePath() + "?" + query.keySet().stream().map(k -> k + "=" + query.get(k)).collect(Collectors.joining("&"));
 
         TwilioUtils utils = new TwilioUtils(TEST_ACCOUNT_TOKEN);
-        String signature = utils.getValidationSignature(url, MageUtils.simplifyMultivaluedMap(form));
+        String signature = utils.getValidationSignature(url, MageUtils.simplifyMultivaluedMap(form.asMap()));
 
-        return resourceRequest()
-                .queryParams(query)
-                .header("X-Twilio-Signature", signature)
-                .post(ClientResponse.class, form);
+        WebTarget target = resourceRequest();
+
+        for (Map.Entry<String, String> param : query.entrySet()) {
+            target = target.queryParam(param.getKey(), param.getValue());
+        }
+
+        return target.request().header("X-Twilio-Signature", signature).post(Entity.form(form));
     }
 
     /**
@@ -245,10 +249,13 @@ public class TwilioResourceTest extends BaseResourceTest<TwilioResource> {
      * @param form the form parameters
      * @return the response
      */
-    protected ClientResponse requestWithInvalidSignature(MultivaluedMap<String, String> query, Form form) {
-        return resourceRequest()
-                .queryParams(query)
-                .header("X-Twilio-Signature", "xxxxxx")
-                .post(ClientResponse.class, form);
+    protected Response requestWithInvalidSignature(Map<String, String> query, Form form) {
+        WebTarget target = resourceRequest();
+
+        for (Map.Entry<String, String> param : query.entrySet()) {
+            target = target.queryParam(param.getKey(), param.getValue());
+        }
+
+        return target.request().header("X-Twilio-Signature", "xxxxxxx").post(Entity.form(form));
     }
 }

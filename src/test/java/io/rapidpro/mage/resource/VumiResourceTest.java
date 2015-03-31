@@ -6,10 +6,11 @@ import io.rapidpro.mage.dao.Table;
 import io.rapidpro.mage.test.BaseResourceTest;
 import io.rapidpro.mage.test.TestUtils;
 import io.rapidpro.mage.util.JsonUtils;
-import com.sun.jersey.api.client.ClientResponse;
 import org.junit.Test;
 
+import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.hasEntry;
@@ -28,11 +29,11 @@ public class VumiResourceTest extends BaseResourceTest<VumiResource> {
 
     @Test
     public void get_receive_shouldReturn405() {
-        ClientResponse response = resourceRequest()
+        Response response = resourceRequest()
                 .path("receive")
                 .path("C4C92278-586E-4B38-93C4-D413FEF43FA2")
-                .type(MediaType.APPLICATION_JSON)
-                .get(ClientResponse.class);
+                .request(MediaType.APPLICATION_JSON)
+                .get();
 
         assertThat(response.getStatusInfo().getStatusCode(), is(405));
     }
@@ -45,11 +46,11 @@ public class VumiResourceTest extends BaseResourceTest<VumiResource> {
                 .put("content", "Testing")
                 .put("message_id", "SMS84");
 
-        ClientResponse response = resourceRequest()
+        Response response = resourceRequest()
                 .path("receive")
                 .path("C4C92278-586E-4B38-93C4-D413FEF43FA2")
-                .type(MediaType.APPLICATION_JSON)
-                .post(ClientResponse.class, JsonUtils.encode(payload));
+                .request(MediaType.APPLICATION_JSON)
+                .post(Entity.json(payload));
 
         int msgId = TestUtils.assertResponse(response, 200, MessageEvent.Result.CREATED);
 
@@ -64,11 +65,11 @@ public class VumiResourceTest extends BaseResourceTest<VumiResource> {
     public void post_receive_badPayload_shouldReturn400() throws Exception {
         ObjectNode payload = JsonUtils.object().put("foo", "bar");
 
-        ClientResponse response = resourceRequest()
+        Response response = resourceRequest()
                 .path("receive")
                 .path("C4C92278-586E-4B38-93C4-D413FEF43FA2")
-                .type(MediaType.APPLICATION_JSON)
-                .post(ClientResponse.class, JsonUtils.encode(payload));
+                .request(MediaType.APPLICATION_JSON)
+                .post(Entity.json(payload));
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
@@ -79,11 +80,11 @@ public class VumiResourceTest extends BaseResourceTest<VumiResource> {
                 .put("event_type", "ack")
                 .put("user_message_id", "SMS84");
 
-        ClientResponse response = resourceRequest()
+        Response response = resourceRequest()
                 .path("event")
                 .path("C4C92278-586E-4B38-93C4-D413FEF43FA2")
-                .type(MediaType.APPLICATION_JSON)
-                .post(ClientResponse.class, JsonUtils.encode(payload));
+                .request(MediaType.APPLICATION_JSON)
+                .post(Entity.json(payload));
 
         TestUtils.assertResponse(response, 200, MessageEvent.Result.UPDATED);
     }
@@ -94,11 +95,11 @@ public class VumiResourceTest extends BaseResourceTest<VumiResource> {
                 .put("event_type", "delivery_report")
                 .put("user_message_id", "SMS84");
 
-        ClientResponse response = resourceRequest()
+        Response response = resourceRequest()
                 .path("event")
                 .path("C4C92278-586E-4B38-93C4-D413FEF43FA2")
-                .type(MediaType.APPLICATION_JSON)
-                .post(ClientResponse.class, JsonUtils.encode(payload));
+                .request(MediaType.APPLICATION_JSON)
+                .post(Entity.json(payload));
 
         TestUtils.assertResponse(response, 200, MessageEvent.Result.UPDATED);
     }
@@ -107,11 +108,11 @@ public class VumiResourceTest extends BaseResourceTest<VumiResource> {
     public void post_event_ack_invalidPayload_shouldReturn400() throws Exception {
         ObjectNode payload = JsonUtils.object().put("foo", "bar");
 
-        ClientResponse response = resourceRequest()
+        Response response = resourceRequest()
                 .path("event")
                 .path("C4C92278-586E-4B38-93C4-D413FEF43FA2")
-                .type(MediaType.APPLICATION_JSON)
-                .post(ClientResponse.class, JsonUtils.encode(payload));
+                .request(MediaType.APPLICATION_JSON)
+                .post(Entity.json(payload));
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
@@ -122,22 +123,22 @@ public class VumiResourceTest extends BaseResourceTest<VumiResource> {
                 .put("event_type", "ack")
                 .put("user_message_id", "SMS84");
 
-        ClientResponse response = resourceRequest()
+        Response response = resourceRequest()
                 .path("event")
                 .path("xxxxxxx") // not a valid channel UUID
-                .type(MediaType.APPLICATION_JSON)
-                .post(ClientResponse.class, JsonUtils.encode(payload));
+                .request(MediaType.APPLICATION_JSON)
+                .post(Entity.json(payload));
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }
 
     @Test
     public void post_unknownaction_shouldReturn400() throws Exception {
-        ClientResponse response = resourceRequest()
+        Response response = resourceRequest()
                 .path("xxxxxxx")
                 .path("C4C92278-586E-4B38-93C4-D413FEF43FA2")
-                .type(MediaType.APPLICATION_JSON)
-                .post(ClientResponse.class);
+                .request(MediaType.APPLICATION_JSON)
+                .post(Entity.json(JsonUtils.object()));
 
         TestUtils.assertResponse(response, 400, MessageEvent.Result.ERROR);
     }

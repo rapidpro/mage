@@ -2,10 +2,10 @@ package io.rapidpro.mage.util;
 
 import io.rapidpro.mage.core.ContactUrn;
 import io.rapidpro.mage.test.BaseMageTest;
-import com.sun.jersey.api.representation.Form;
 import org.junit.Assert;
 import org.junit.Test;
 
+import javax.ws.rs.core.MultivaluedHashMap;
 import javax.ws.rs.core.MultivaluedMap;
 import java.util.Arrays;
 import java.util.Collections;
@@ -31,7 +31,7 @@ public class MageUtilsTest extends BaseMageTest {
      */
     @Test
     public void simplifyMultivaluedMap() {
-        MultivaluedMap<String, String> in = new Form();
+        MultivaluedMap<String, String> in = new MultivaluedHashMap<>();
         in.put("var1", Arrays.asList("abc", "def"));
         in.put("var2", Arrays.asList("ghi"));
         in.put("var3", Collections.<String>emptyList());

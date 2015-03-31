@@ -3,12 +3,13 @@ package io.rapidpro.mage.temba;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.rapidpro.mage.util.JsonUtils;
 import io.rapidpro.mage.util.MageUtils;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.api.representation.Form;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.WebTarget;
+import javax.ws.rs.core.Form;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.lang.reflect.Field;
@@ -21,7 +22,7 @@ public class TembaClients {
     protected static final Logger log = LoggerFactory.getLogger(TembaClients.class);
 
     public static interface Client {
-        ClientResponse call(TembaRequest request);
+        Response call(TembaRequest request);
     }
 
     /**
@@ -43,24 +44,25 @@ public class TembaClients {
          * @param request the request
          * @return the client response
          */
-        public ClientResponse call(TembaRequest request) {
-            com.sun.jersey.api.client.Client client = com.sun.jersey.api.client.Client.create();
-            WebResource.Builder resource = client
-                    .resource(m_apiUrl)
+        public Response call(TembaRequest request) {
+            javax.ws.rs.client.Client client = ClientBuilder.newClient();
+            WebTarget target = client.target(m_apiUrl)
                     .path("mage")
-                    .path(request.getAction())
-                    .header("Authorization", "Token " + m_authKey);
+                    .path(request.getAction());
 
             Form form = buildForm(request);
-            ClientResponse response = resource.type(MediaType.APPLICATION_FORM_URLENCODED).post(ClientResponse.class, form);
+
+            Response response = target.request(MediaType.APPLICATION_FORM_URLENCODED)
+                    .header("Authorization", "Token " + m_authKey)
+                    .post(Entity.form(form));
 
             if (response.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
                 log.error("Temba API returned status " + response.getStatusInfo().getStatusCode() + " for " + JsonUtils.encode(request, true));
             }
 
             if (log.isDebugEnabled()) {
-                String body = response.getEntity(String.class);
-                log.debug(resource.toString() + " -> " + body);
+                String body = response.readEntity(String.class);
+                log.debug(target.toString() + " -> " + body);
             }
 
             return response;
@@ -71,8 +73,8 @@ public class TembaClients {
      * Stub client - does nothing and returns 200 for all calls
      */
     protected static class StubClient implements Client {
-        public ClientResponse call(TembaRequest request) {
-            return new ClientResponse(200, null, null, null);
+        public Response call(TembaRequest request) {
+            return Response.ok().build();
         }
     }
 
@@ -100,7 +102,7 @@ public class TembaClients {
 
             Object value = MageUtils.getFieldValue(field, request);
             if (value != null) {
-                form.putSingle(jsonProperty.value(), value);
+                form.param(jsonProperty.value(), String.valueOf(value));
             }
         }
         return form;

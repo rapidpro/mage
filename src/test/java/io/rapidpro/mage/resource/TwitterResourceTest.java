@@ -3,12 +3,15 @@ package io.rapidpro.mage.resource;
 import io.rapidpro.mage.api.StreamEvent;
 import io.rapidpro.mage.test.BaseTwitterTest;
 import io.rapidpro.mage.util.JsonUtils;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.api.representation.Form;
 import io.dropwizard.testing.junit.ResourceTestRule;
 import org.junit.Rule;
 import org.junit.Test;
+
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
+import javax.ws.rs.client.WebTarget;
+import javax.ws.rs.core.Form;
+import javax.ws.rs.core.Response;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -32,14 +35,15 @@ public class TwitterResourceTest extends BaseTwitterTest {
     @Test
     public void post_shouldReturn401ForIncorrectOrMissingAuthToken() throws Exception {
         Form form = new Form();
-        form.putSingle("uuid", "C5E00DFA-3477-49B7-8070-BE87EA69AD54");
-        ClientResponse response = m_resourceRule.client().resource("/twitter")
+        form.param("uuid", "C5E00DFA-3477-49B7-8070-BE87EA69AD54");
+        Response response = m_resourceRule.client().target("/twitter")
+                .request()
                 .header("Authorization", "Token xyz")
-                .post(ClientResponse.class, form);
+                .post(Entity.form(form));
 
         assertThat(response.getStatusInfo().getStatusCode(), is(401));
 
-        response = m_resourceRule.client().resource("/twitter").post(ClientResponse.class, form);
+        response = m_resourceRule.client().target("/twitter").request().post(Entity.form(form));
 
         assertThat(response.getStatusInfo().getStatusCode(), is(401));
     }
@@ -49,39 +53,39 @@ public class TwitterResourceTest extends BaseTwitterTest {
         // TODO clear all existing streams
 
         Form form = new Form();
-        form.putSingle("uuid", "C5E00DFA-3477-49B7-8070-BE87EA69AD54");
-        ClientResponse response = resourceRequest(null).post(ClientResponse.class, form);
+        form.param("uuid", "C5E00DFA-3477-49B7-8070-BE87EA69AD54");
+        Response response = resourceRequest(null).post(Entity.form(form));
 
         assertThat(response.getStatusInfo().getStatusCode(), is(200));
-        StreamEvent event = response.getEntity(StreamEvent.class);
+        StreamEvent event = response.readEntity(StreamEvent.class);
         assertThat(event.getResult(), is(StreamEvent.Result.ADDED));
         assertThat(event.getChannelUuid(), is("C5E00DFA-3477-49B7-8070-BE87EA69AD54"));
 
         // add same channel again...
-        response = resourceRequest(null).post(ClientResponse.class, form);
+        response = resourceRequest(null).post(Entity.form(form));
 
         assertThat(response.getStatusInfo().getStatusCode(), is(200));
-        event = response.getEntity(StreamEvent.class);
+        event = response.readEntity(StreamEvent.class);
         assertThat(event.getResult(), is(StreamEvent.Result.ADDED));
         assertThat(event.getChannelUuid(), is("C5E00DFA-3477-49B7-8070-BE87EA69AD54"));
     }
 
     @Test
     public void delete_uuid_shouldRemoveStreamByChannelUuid() throws Exception {
-        ClientResponse response = resourceRequest("C5E00DFA-3477-49B7-8070-BE87EA69AD54").delete(ClientResponse.class);
+        Response response = resourceRequest("C5E00DFA-3477-49B7-8070-BE87EA69AD54").delete();
 
         assertThat(response.getStatusInfo().getStatusCode(), is(200));
-        StreamEvent event = response.getEntity(StreamEvent.class);
+        StreamEvent event = response.readEntity(StreamEvent.class);
         assertThat(event.getResult(), is(StreamEvent.Result.REMOVED));
         assertThat(event.getChannelUuid(), is("C5E00DFA-3477-49B7-8070-BE87EA69AD54"));
     }
 
-    protected WebResource.Builder resourceRequest(String path) {
-        WebResource resource = m_resourceRule.client().resource("/twitter");
+    protected Invocation.Builder resourceRequest(String path) {
+        WebTarget target = m_resourceRule.client().target("/twitter");
         if (path != null) {
-            resource = resource.path(path);
+            target = target.path(path);
         }
 
-        return resource.header("Authorization", "Token " + TEST_AUTH_TOKEN);
+        return target.request().header("Authorization", "Token " + TEST_AUTH_TOKEN);
     }
 }

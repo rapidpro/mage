@@ -7,11 +7,11 @@ import io.rapidpro.mage.resource.exception.UnauthorizedException;
 import io.rapidpro.mage.service.ServiceManager;
 import io.rapidpro.mage.twitter.StreamOperation;
 import io.rapidpro.mage.twitter.TwitterManager;
-import com.sun.jersey.api.NotFoundException;
 
 import javax.ws.rs.DELETE;
 import javax.ws.rs.FormParam;
 import javax.ws.rs.HeaderParam;
+import javax.ws.rs.NotFoundException;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;

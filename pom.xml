@@ -11,7 +11,7 @@
     <description>Simple and fast Java based server for receiving messages</description>
 
     <properties>
-        <dropwizard.version>0.7.1</dropwizard.version>
+        <dropwizard.version>0.8.0</dropwizard.version>
 
         <postgresql.version>9.3-1101-jdbc41</postgresql.version>
         <jedis.version>2.6.1</jedis.version>
