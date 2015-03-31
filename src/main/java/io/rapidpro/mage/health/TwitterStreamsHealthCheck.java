@@ -28,10 +28,14 @@ public class TwitterStreamsHealthCheck extends HealthCheck {
             errors += stats.getNum500s();
         }
 
+        String message = "master=" + (m_manager.isMaster() ? "YES" : "NO")
+                + ", streams=" + m_manager.getNodeStreams().size()
+                + ", errors=" + errors;
+
         if (errors == 0) {
-            return Result.healthy();
+            return Result.healthy(message);
         } else {
-            return Result.unhealthy("Twitter streams have recorded " + errors + " errored requests");
+            return Result.unhealthy(message);
         }
     }
 }

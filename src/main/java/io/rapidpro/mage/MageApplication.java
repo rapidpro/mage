@@ -133,9 +133,9 @@ public class MageApplication extends Application<MageConfiguration> {
 
         // register metrics and health checks
         Map<String, QueueSizeCheckAndGauge> gauges = new HashMap<>();
-        gauges.put("cache.queue.tembaapi", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.TEMBA_REQUEST_QUEUE, 100));
-        gauges.put("cache.queue.streamop", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.TWITTER_STREAMOP_QUEUE, 100));
-        gauges.put("cache.queue.msgupdate", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.MESSAGE_UPDATE_QUEUE, 1000));
+        gauges.put("queue.tembaapi", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.TEMBA_REQUEST_QUEUE, 100));
+        gauges.put("queue.streamop", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.TWITTER_STREAMOP_QUEUE, 100));
+        gauges.put("queue.msgupdate", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.MESSAGE_UPDATE_QUEUE, 1000));
 
         gauges.forEach(environment.metrics()::register);
         gauges.forEach(environment.healthChecks()::register);
