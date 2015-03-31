@@ -6,14 +6,12 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.Appender;
 import com.codahale.metrics.MetricFilter;
 import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.health.HealthCheckRegistry;
 import com.google.common.io.Resources;
 import com.librato.metrics.LibratoReporter;
 import io.rapidpro.mage.cache.Cache;
 import io.rapidpro.mage.config.EnvAwareFileConfigurationSourceProvider;
 import io.rapidpro.mage.config.MageConfiguration;
 import io.rapidpro.mage.dao.mapper.AnnotationMapperFactory;
-import io.rapidpro.mage.health.CombinationHealthCheck;
 import io.rapidpro.mage.health.QueueSizeCheckAndGauge;
 import io.rapidpro.mage.health.TwitterStreamsHealthCheck;
 import io.rapidpro.mage.process.MessageUpdateProcess;
@@ -22,6 +20,7 @@ import io.rapidpro.mage.resource.TwilioResource;
 import io.rapidpro.mage.resource.TwitterResource;
 import io.rapidpro.mage.resource.VumiResource;
 import io.rapidpro.mage.service.ServiceManager;
+import io.rapidpro.mage.health.HealthCheckServlet;
 import io.rapidpro.mage.task.SentryTestTask;
 import io.rapidpro.mage.task.TwitterMasterTask;
 import io.rapidpro.mage.temba.TembaManager;
@@ -40,6 +39,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.skife.jdbi.v2.DBI;
 import org.slf4j.LoggerFactory;
 
+import javax.servlet.Servlet;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.HashMap;
@@ -125,17 +125,30 @@ public class MageApplication extends Application<MageConfiguration> {
         environment.admin().addTask(new TwitterMasterTask(twitter));
         environment.admin().addTask(new SentryTestTask());
 
-        initializeMetricsAndHealthchecks(environment.metrics(), environment.healthChecks(), cache, twitter);
-
-        if (generalCfg.isProduction()) {
-            initializeLibrato(environment.metrics(), serverName, monitoringCfg.getLibratoEmail(), monitoringCfg.getLibratoApiToken());
-        }
-
         // register resources
         environment.jersey().register(new ExternalResource(services));
         environment.jersey().register(new TwilioResource(services));
         environment.jersey().register(new VumiResource(services));
         environment.jersey().register(new TwitterResource(twitter, services, tembaCfg.getAuthToken()));
+
+        // register metrics and health checks
+        Map<String, QueueSizeCheckAndGauge> gauges = new HashMap<>();
+        gauges.put("cache.queue.tembaapi", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.TEMBA_REQUEST_QUEUE, 100));
+        gauges.put("cache.queue.streamop", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.TWITTER_STREAMOP_QUEUE, 100));
+        gauges.put("cache.queue.msgupdate", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.MESSAGE_UPDATE_QUEUE, 1000));
+
+        gauges.forEach(environment.metrics()::register);
+        gauges.forEach(environment.healthChecks()::register);
+
+        environment.healthChecks().register("twitter.streams", new TwitterStreamsHealthCheck(twitter));
+
+        // register servlets
+        Servlet statusServlet = new HealthCheckServlet(environment.healthChecks());
+        environment.servlets().addServlet("status-servlet", statusServlet).addMapping("/status");
+
+        if (generalCfg.isProduction()) {
+            initializeLibrato(environment.metrics(), serverName, monitoringCfg.getLibratoEmail(), monitoringCfg.getLibratoApiToken());
+        }
     }
 
     /**
@@ -171,20 +184,6 @@ public class MageApplication extends Application<MageConfiguration> {
         root.addAppender(appender);
 
         log.info("Initialized Raven client");
-    }
-
-    protected void initializeMetricsAndHealthchecks(MetricRegistry metrics, HealthCheckRegistry health, Cache cache, TwitterManager twitter) {
-        // register metrics
-        Map<String, QueueSizeCheckAndGauge> gauges = new HashMap<>();
-        gauges.put("cache.queue.tembaapi", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.TEMBA_REQUEST_QUEUE, 100));
-        gauges.put("cache.queue.streamop", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.TWITTER_STREAMOP_QUEUE, 100));
-        gauges.put("cache.queue.msgupdate", new QueueSizeCheckAndGauge(cache, MageConstants.CacheKey.MESSAGE_UPDATE_QUEUE, 1000));
-
-        gauges.forEach(metrics::register);
-
-        // register health checks
-        health.register("cache_queues", new CombinationHealthCheck(gauges.values()));
-        health.register("twitter_streams", new TwitterStreamsHealthCheck(twitter));
     }
 
     protected void initializeLibrato(MetricRegistry metrics, String serverName, String email, String apiToken) {

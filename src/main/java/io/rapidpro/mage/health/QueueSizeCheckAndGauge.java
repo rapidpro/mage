@@ -35,9 +35,11 @@ public class QueueSizeCheckAndGauge extends HealthCheck implements Gauge<Long> {
     @Override
     protected Result check() throws Exception {
         long size = getValue();
+        String message = "size=" + size + ", threshold=" + m_maxHealthySize;
+
         if (size > m_maxHealthySize) {
-            return Result.unhealthy("Queue contains " + size + " items. Health maximum is " + m_maxHealthySize);
+            return Result.unhealthy(message);
         }
-        return Result.healthy();
+        return Result.healthy(message);
     }
 }
