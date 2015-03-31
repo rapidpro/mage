@@ -97,12 +97,6 @@ public class MageApplication extends Application<MageConfiguration> {
         // use explicit annotations for all JSON serialization
         JsonUtils.disableMapperAutoDetection(environment.getObjectMapper());
 
-        // in Dropwizard 0.8 this can go back into config.yml (see https://github.com/dropwizard/dropwizard/pull/665)
-        environment.getAdminContext().setContextPath("/admin");
-
-        // we set Jersey's URL pattern rather than set applicationContextPath so that assets can be served from the root
-        environment.jersey().setUrlPattern("/api/v1/*");
-
         if (StringUtils.isNotEmpty(monitoringCfg.getSegmentioWriteKey())) {
             AnalyticsUtils.initialize(serverName, monitoringCfg.getSegmentioWriteKey());
         }

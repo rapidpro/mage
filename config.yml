@@ -20,11 +20,15 @@ general:
     production: ${PRODUCTION}
 
 server:
+    type: default
     minThreads: 8
     maxThreads: 64
+    applicationContextPath: /
     applicationConnectors:
       - type: http
         port: 8026
+    rootPath: '/api/v1/*'
+    adminContextPath: /
     adminConnectors:
       - type: http
         port: 8028
