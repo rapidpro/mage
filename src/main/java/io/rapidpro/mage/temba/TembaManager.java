@@ -80,16 +80,35 @@ public class TembaManager implements Managed {
             }
 
             TembaRequest request = JsonUtils.parse(encoded, TembaRequest.class);
-            Response response = m_client.call(request);
+            boolean retry = false;
+            String retryReason = null;
 
-            if (shouldRetry(response)) {
+            try {
+                Response response = m_client.call(request);
+
+                if (shouldRetry(response)) {
+                    retry = true;
+                    retryReason = "Temba API request failed with status " + response.getStatus();
+                }
+                else if (response.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
+                    // an error which doesn't trigger a retry should just be logged
+                    log.error("Temba API request failed with status " + response.getStatus() + " for " + encoded);
+                }
+            }
+            catch (Exception ex) {
+                // an exception caught here is going to be connection related and so request should be retried
+                retry = true;
+                retryReason = "Temba API request failed with exception " + ex.getClass().getSimpleName();
+            }
+
+            if (retry) {
                 // put back at start of list and schedule retry
                 m_cache.listLPush(MageConstants.CacheKey.TEMBA_REQUEST_QUEUE, encoded);
 
                 m_retryCount++;
                 long delay = m_retryDelays[Math.min(m_retryCount, m_retryDelays.length) - 1];
 
-                log.warn("Temba API request failed with status " + response.getStatus() + ", retrying in " + delay + " milliseconds");
+                log.warn(retryReason + ", retrying in " + delay + " milliseconds");
                 return delay;
             }
             else {

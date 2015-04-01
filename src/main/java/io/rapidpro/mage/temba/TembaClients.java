@@ -56,10 +56,6 @@ public class TembaClients {
                     .header("Authorization", "Token " + m_authKey)
                     .post(Entity.form(form));
 
-            if (response.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
-                log.error("Temba API returned status " + response.getStatusInfo().getStatusCode() + " for " + JsonUtils.encode(request, true));
-            }
-
             if (log.isDebugEnabled()) {
                 String body = response.readEntity(String.class);
                 log.debug(target.toString() + " -> " + body);
