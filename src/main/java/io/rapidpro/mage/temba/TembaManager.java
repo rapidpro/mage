@@ -8,6 +8,8 @@ import io.dropwizard.lifecycle.Managed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.ws.rs.core.Response;
+
 /**
  * Manager for Temba functionality
  */
@@ -18,6 +20,8 @@ public class TembaManager implements Managed {
     private final Cache m_cache;
 
     private final RequestProcess m_process;
+
+    private int[] RETRY_STATUSES = { 502, 503, 504 };  // response statuses which should trigger a delayed retry
 
     public TembaManager(Cache cache, String apiUrl, String authKey, boolean production) {
         m_cache = cache;
@@ -56,7 +60,7 @@ public class TembaManager implements Managed {
         protected final long[] m_retryDelays = { 1000l, 5000l, 30000l };
 
         protected TembaClients.Client m_client;
-        protected int m_failCount = 0;
+        protected int m_retryCount = 0;
 
         public RequestProcess(String apiUrl, String authKey, boolean production) {
             super("tembarequests", 1000l);
@@ -76,22 +80,36 @@ public class TembaManager implements Managed {
             }
 
             TembaRequest request = JsonUtils.parse(encoded, TembaRequest.class);
+            Response response = m_client.call(request);
 
-            try {
-                m_client.call(request);
-                m_failCount = 0;
-                return 0l;
-            }
-            catch (Exception e) {
-                // if an exception occurs during processing, put back at start of list and schedule retry
+            if (shouldRetry(response)) {
+                // put back at start of list and schedule retry
                 m_cache.listLPush(MageConstants.CacheKey.TEMBA_REQUEST_QUEUE, encoded);
 
-                m_failCount++;
-                long delay = m_retryDelays[Math.min(m_failCount, m_retryDelays.length) - 1];
+                m_retryCount++;
+                long delay = m_retryDelays[Math.min(m_retryCount, m_retryDelays.length) - 1];
 
-                log.warn("Temba API request failed, retrying in " + delay + " milliseconds", e);
+                log.warn("Temba API request failed with status " + response.getStatus() + ", retrying in " + delay + " milliseconds");
                 return delay;
             }
+            else {
+                m_retryCount = 0;
+                return 0l;
+            }
         }
+    }
+
+    /**
+     * Determines whether a request should be retried
+     * @param response the request response
+     * @return true if request should be retried
+     */
+    protected boolean shouldRetry(Response response) {
+        for (int retryStatus : RETRY_STATUSES) {
+            if (retryStatus == response.getStatus()) {
+                return true;
+            }
+        }
+        return false;
     }
 }
