@@ -4,7 +4,7 @@
  
     <groupId>io.rapidpro</groupId>
     <artifactId>mage</artifactId>
-    <version>0.1.42</version>
+    <version>0.1.43-SNAPSHOT</version>
 
     <packaging>jar</packaging>
     <name>Message Mage</name>
@@ -40,7 +40,7 @@
         <connection>scm:git:git@github.com:rapidpro/mage.git</connection>
         <developerConnection>scm:git:git@github.com:rapidpro/mage.git</developerConnection>
         <url>scm:git:git@github.com:rapidpro/mage.git</url>
-      <tag>v0.1.42</tag>
+      <tag>HEAD</tag>
   </scm>
 
     <dependencies>
