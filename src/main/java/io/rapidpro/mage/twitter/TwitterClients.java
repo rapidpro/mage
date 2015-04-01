@@ -13,11 +13,13 @@ import com.twitter.hbc.twitter4j.Twitter4jUserstreamClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import twitter4j.DirectMessage;
+import twitter4j.PagableResponseList;
 import twitter4j.Paging;
 import twitter4j.ResponseList;
 import twitter4j.Twitter;
 import twitter4j.TwitterException;
 import twitter4j.TwitterFactory;
+import twitter4j.User;
 import twitter4j.UserStreamListener;
 import twitter4j.conf.ConfigurationBuilder;
 
@@ -40,6 +42,8 @@ public class TwitterClients {
      */
     public static interface RestClient {
         ResponseList<DirectMessage> getDirectMessages(Paging paging) throws TwitterException;
+
+        PagableResponseList<User> getFollowers(long cursor) throws TwitterException;
 
         void createFriendship(long userId) throws TwitterException;
     }
@@ -78,6 +82,11 @@ public class TwitterClients {
         }
 
         @Override
+        public PagableResponseList<User> getFollowers(long cursor) throws TwitterException {
+            return m_realClient.getFollowersList(m_realClient.getId(), cursor, 200);
+        }
+
+        @Override
         public void createFriendship(long userId) throws TwitterException {
             m_realClient.createFriendship(userId);
         }
@@ -90,6 +99,12 @@ public class TwitterClients {
         @Override
         public ResponseList<DirectMessage> getDirectMessages(Paging paging) throws TwitterException {
             log.info("FAKED direct message fetch from Twitter API");
+            return null;
+        }
+
+        @Override
+        public PagableResponseList<User> getFollowers(long cursor) throws TwitterException {
+            log.info("FAKED follower list fetch from Twitter API");
             return null;
         }
 

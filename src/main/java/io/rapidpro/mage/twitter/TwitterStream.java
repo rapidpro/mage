@@ -15,7 +15,9 @@ import io.dropwizard.lifecycle.Managed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import twitter4j.DirectMessage;
+import twitter4j.PagableResponseList;
 import twitter4j.Paging;
+import twitter4j.RateLimitStatus;
 import twitter4j.ResponseList;
 import twitter4j.TwitterException;
 import twitter4j.User;
@@ -187,14 +189,14 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     }
 
     /**
-     * Background task which fetches potentially missed tweets using the REST API
+     * Background task which fetches potentially missed tweets and follows using the REST API
      */
     protected class BackfillFetcherTask implements Runnable {
 
-        private long m_sinceId;
+        private long m_lastMessageId;
 
-        public BackfillFetcherTask(long sinceId) {
-            this.m_sinceId = sinceId;
+        public BackfillFetcherTask(long lastMessageId) {
+            this.m_lastMessageId = lastMessageId;
         }
 
         /**
@@ -202,14 +204,26 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
          */
         @Override
         public void run() {
-            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (sinceId=" + m_sinceId + ")");
+            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (sinceId=" + m_lastMessageId + ")");
 
+            long maxMessageId = backfillTweets();
+
+            backfillFollows();
+
+            onBackfillComplete(maxMessageId);
+        }
+
+        /**
+         * Back-fills missed tweets
+         * @return the last message id back filled
+         */
+        protected long backfillTweets() {
             Instant now = Instant.now();
 
             int page = 1;
             Paging paging = new Paging(page, 200);
-            if (m_sinceId > 0) {
-                paging.setSinceId(m_sinceId);
+            if (m_lastMessageId > 0) {
+                paging.setSinceId(m_lastMessageId);
             }
 
             long maxMessageId = 0;
@@ -221,9 +235,6 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                     if (messages == null) {
                         break;
                     }
-
-                    // TODO handle rate limit status?
-                    //RateLimitStatus rateStatus = messages.getRateLimitStatus();
 
                     long minPageMessageId = 0;
 
@@ -251,14 +262,76 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                     paging.setMaxId(minPageMessageId - 1); // see https://dev.twitter.com/rest/public/timelines
 
                 } catch (TwitterException ex) {
-                    ex.printStackTrace();
+                    if (ex.exceededRateLimitation()) {
+                        // log as error so goes to Sentry
+                        log.error("Exceeded rate limit", ex);
 
-                    // TODO handle rate limit exception? For now just bail
+                        RateLimitStatus status = ex.getRateLimitStatus();
+                        try {
+                            Thread.sleep(status.getSecondsUntilReset() * 1000);
+                            continue;
+
+                        } catch (InterruptedException e) {
+                            break;
+                        }
+                    }
                     break;
                 }
             }
 
-            onBackfillComplete(maxMessageId);
+            return maxMessageId;
+        }
+
+        /**
+         * Back-fills missed follows
+         */
+        protected void backfillFollows() {
+            long cursor = -1l;
+            while (true) {
+                try {
+                    PagableResponseList<User> followers = m_restClient.getFollowers(cursor);
+                    if (followers == null) {
+                        break;
+                    }
+
+                    for (User follower : followers) {
+                        // ensure contact exists for this follower
+                        ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
+                        ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
+                                urn, getChannel().getChannelId(), follower.getScreenName());
+
+                        if (contact.isNewContact()) {
+                            log.info("Follow from " + follower.getScreenName() + " back-filled and saved as new contact #" + contact.getContactId());
+
+                            // queue a request to notify Temba that the channel account has been followed
+                            TembaRequest request = TembaRequest.newFollowNotification(getChannel().getChannelId(), contact.getContactUrnId(), contact.isNewContact());
+                            m_manager.getTemba().queueRequest(request);
+                        }
+                    }
+
+                    if (followers.hasNext()) {
+                        cursor = followers.getNextCursor();
+                    } else {
+                        break;
+                    }
+
+                } catch (TwitterException ex) {
+                    if (ex.exceededRateLimitation()) {
+                        // log as error so goes to Sentry
+                        log.error("Exceeded rate limit", ex);
+
+                        RateLimitStatus status = ex.getRateLimitStatus();
+                        try {
+                            Thread.sleep(status.getSecondsUntilReset() * 1000);
+                            continue;
+
+                        } catch (InterruptedException e) {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
         }
     }
 
