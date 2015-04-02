@@ -25,10 +25,15 @@ import twitter4j.UserStreamAdapter;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Provides connection to a single Twitter account using both the Streaming API for real time message fetching, and the
- * REST API for back filling
+ * REST API for back filling. When the stream is started it first checks the channel BOD field to see if there is a
+ * last message id. If there isn't then we know that this is a new stream and we don't try to back-fill anything. If
+ * there is then that is used as a starting point for back-filling.
  */
 public class TwitterStream extends UserStreamAdapter implements Managed {
 
@@ -90,18 +95,16 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void start() throws Exception {
-        m_streamingClient.start(this);
+        // for Twitter channels, bod field is used to hold the external id of last message retrieved
+        Long lastExternalId = getLastExternalId();
 
         // if we don't have a previous last message id, then this channel is being streamed for the first time so don't
-        // try to back-fill unless there is one
-        Long lastExternalId = getLastExternalId();
+        // try to back-fill
         if (lastExternalId != null) {
             m_manager.requestBackfill(new BackfillFetcherTask(lastExternalId));
         }
         else {
-            log.info("Skipping back-fill task for new channel #" + getChannel().getChannelId());
-            setLastExternalId(0l);
-            m_backfillComplete = true;
+            onBackfillComplete(0l, false);
         }
     }
 
@@ -114,15 +117,57 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     }
 
     /**
+     * Called when back-filling step is complete or skipped
+     * @param lastExternalId the maximum message id retrieved during back-fill
+     * @param performed whether back-filling was performed or skipped
+     */
+    public void onBackfillComplete(long lastExternalId, boolean performed) {
+        if (performed) {
+            log.info("Finished back-fill task for channel #" + getChannel().getChannelId() + " (last id is " + lastExternalId + ")");
+        }
+        else {
+            log.info("Skipped back-fill task for channel #" + getChannel().getChannelId());
+        }
+
+        setLastExternalId(lastExternalId);
+
+        m_backfillComplete = true;
+
+        // to preserve message order, only start streaming after back-filling is complete
+        m_streamingClient.start(this);
+    }
+
+    /**
+     * Handles an incoming direct message, whether received via streaming or back-filling
+     * @param message the direct message
+     * @return the saved message id
+     */
+    protected int handleMessageReceived(DirectMessage message, boolean fromStream) {
+        // don't do anything if we are the sender
+        if (message.getSenderId() == m_handleId) {
+            return 0;
+        }
+
+        IncomingContext context = new IncomingContext(m_channel.getChannelId(), null, ChannelType.TWITTER, m_channel.getOrgId(), null);
+        MessageService service = m_manager.getServices().getMessageService();
+        ContactUrn from = new ContactUrn(ContactUrn.Scheme.TWITTER, message.getSenderScreenName());
+        String name = message.getSenderScreenName();
+
+        int savedId = service.createIncoming(context, from, message.getText(), message.getCreatedAt(), String.valueOf(message.getId()), name);
+
+        log.info("Direct message " + message.getId() + " " + (fromStream ? "streamed" : "back-filled") + " on channel #" + m_channel.getChannelId() + " and saved as msg #" + savedId);
+
+        setLastExternalId(message.getId());
+
+        return savedId;
+    }
+
+    /**
      * @see UserStreamAdapter#onDirectMessage(twitter4j.DirectMessage)
      */
     @Override
     public void onDirectMessage(DirectMessage message) {
-        int savedId = handleMessageReceived(message);
-
-        if (savedId > 0) {
-            log.info("Direct message " + message.getId() + " received on channel #" + m_channel.getChannelId() + " and saved as msg #" + savedId);
-        }
+        handleMessageReceived(message, true);
     }
 
     /**
@@ -156,40 +201,10 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         m_manager.getTemba().queueRequest(request);
     }
 
-    public void onBackfillComplete(long maxMessageId) {
-        log.info("Finished back-fill task for channel #" + getChannel().getChannelId() + " (maxId=" + maxMessageId + ")");
-
-        m_backfillComplete = true;
-    }
-
     /**
-     * Handles an incoming direct message, whether received via Streaming or REST
-     * @param message the direct message
-     * @return the saved message id
-     */
-    protected int handleMessageReceived(DirectMessage message) {
-        // don't do anything if we are the sender
-        if (message.getSenderId() == m_handleId) {
-            return 0;
-        }
-
-        IncomingContext context = new IncomingContext(m_channel.getChannelId(), null, ChannelType.TWITTER, m_channel.getOrgId(), null);
-        MessageService service = m_manager.getServices().getMessageService();
-        ContactUrn from = new ContactUrn(ContactUrn.Scheme.TWITTER, message.getSenderScreenName());
-        String name = message.getSenderScreenName();
-
-        int savedId = service.createIncoming(context, from, message.getText(), message.getCreatedAt(), String.valueOf(message.getId()), name);
-
-        Long lastExternalId = getLastExternalId();
-        if (lastExternalId != null && message.getId() > lastExternalId) {
-            setLastExternalId(message.getId());
-        }
-
-        return savedId;
-    }
-
-    /**
-     * Background task which fetches potentially missed tweets and follows using the REST API
+     * Background task which fetches potentially missed tweets and follows using the REST API. This happens in a task
+     * so the Twitter Manager can run multiple back-fill tasks sequentially, making it easier to respect the Twitter API
+     * rate limits.
      */
     protected class BackfillFetcherTask implements Runnable {
 
@@ -210,7 +225,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
             backfillFollows();
 
-            onBackfillComplete(maxMessageId);
+            onBackfillComplete(maxMessageId, true);
         }
 
         /**
@@ -226,8 +241,10 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                 paging.setSinceId(m_lastMessageId);
             }
 
+            List<DirectMessage> all_messages = new ArrayList<>();
             long maxMessageId = 0;
 
+            // fetch all messages - Twitter will give us them in reverse chronological order
             outer:
             while (true) {
                 try {
@@ -244,10 +261,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                             break outer;
                         }
 
-                        int savedId = handleMessageReceived(message);
-                        if (savedId > 0) {
-                            log.info("Direct message " + message.getId() + " back-filled and saved as msg #" + savedId);
-                        }
+                        all_messages.add(message);
 
                         maxMessageId = Math.max(maxMessageId, message.getId());
                         minPageMessageId = Math.min(minPageMessageId, message.getId());
@@ -277,6 +291,12 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                     }
                     break;
                 }
+            }
+
+            // handle all messages in chronological order
+            Collections.reverse(all_messages);
+            for (DirectMessage message : all_messages) {
+                handleMessageReceived(message, false);
             }
 
             return maxMessageId;
@@ -336,14 +356,33 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     }
 
     protected Long getLastExternalId() {
+        // this was previously being stored in Redis so look there first
         String key = "stream_" + m_channel.getChannelUuid() + ":last_external_id";
         String val = m_manager.getCache().getValue(key);
-        return val != null ? Long.parseLong(val) : null;
+        if (val != null) {
+            // migrate value to channel.bod field so next time we get it from there
+            long fromRedis = Long.parseLong(val);
+            setLastExternalId(fromRedis);
+            m_manager.getCache().deleteValue(key);
+            return fromRedis;
+        }
+
+        if (m_channel.getChannelBod() != null) {
+            try {
+                return Long.parseLong(m_channel.getChannelBod());
+            }
+            catch (NumberFormatException ex) {}
+        }
+
+        return null;
     }
 
+    /**
+     * Updates the last external message id record for this stream
+     * @param externalId the message id from Twitter
+     */
     protected void setLastExternalId(long externalId) {
-        String key = "stream_" + m_channel.getChannelUuid() + ":last_external_id";
-        m_manager.getCache().setValue(key, String.valueOf(externalId));
+        m_manager.getServices().getChannelService().updateChannelBod(m_channel.getChannelId(), String.valueOf(externalId));
     }
 
     public ChannelContext getChannel() {

@@ -110,6 +110,8 @@ public class MessageService extends BaseService<MessageDao> {
 
         ContactContext contact = getManager().getContactService().getOrCreateContact(context.getOrgId(), urn, context.getChannelId(), name);
 
+        // TODO use externalId + channelId for quicker existing check?
+
         Integer existingId = getDao().getMessage(text, createdOn, contact.getContactId(), Direction.INCOMING);
         if (existingId != null) {
             return existingId;

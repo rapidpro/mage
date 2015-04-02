@@ -29,7 +29,28 @@ public class ChannelDaoTest extends BaseServicesTest {
         assertThat(nexmo.get(0).getChannelType(), is(ChannelType.NEXMO));
         assertThat(nexmo.get(0).getChannelConfig(), nullValue());
         assertThat(nexmo.get(0).getOrgId(), is(-11));
+
         List<ChannelContext> twitter = m_dao.getChannelsByType(ChannelType.TWITTER);
         assertThat(twitter, hasSize(2));
+    }
+
+    /**
+     * @see io.rapidpro.mage.dao.ChannelDao#getChannelByUuid(String)
+     */
+    @Test
+    public void getChannelByUuid() {
+        ChannelContext twilio = m_dao.getChannelByUuid("A6977A60-77EE-46FD-BFFA-AE58A65150DA");
+        assertThat(twilio.getChannelId(), is(-41));
+
+        assertThat(m_dao.getChannelByUuid("xxxxx"), nullValue());
+    }
+
+    /**
+     * @see io.rapidpro.mage.dao.ChannelDao#updateChannelBod(int, String)
+     */
+    @Test
+    public void updateChannelBod() throws Exception {
+        m_dao.updateChannelBod(-41, "1234");
+        assertThat(querySingle("SELECT bod FROM " + Table.CHANNEL + " WHERE id = -41").get("bod"), is("1234"));
     }
 }

@@ -23,6 +23,9 @@ public class ChannelContext {
     @JsonProperty("channel_config")
     private ObjectNode m_channelConfig;
 
+    @JsonProperty("channel_bod")
+    private String m_channelBod;
+
     @JsonProperty("org_id")
     private Integer m_orgId;
 
@@ -40,6 +43,10 @@ public class ChannelContext {
 
     public ObjectNode getChannelConfig() {
         return m_channelConfig;
+    }
+
+    public String getChannelBod() {
+        return m_channelBod;
     }
 
     public Integer getOrgId() {

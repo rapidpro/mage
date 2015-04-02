@@ -44,7 +44,6 @@ public class TwitterStreamTest extends BaseTwitterTest {
     @Test
     public void create_shouldNotBackfillWhenNew() throws Exception {
         String channelUuid = "C5E00DFA-3477-49B7-8070-BE87EA69AD54";
-        String lastExtIdKey = "stream_" + channelUuid + ":last_external_id";
 
         ChannelContext channel = getServices().getChannelService().getChannelByUuid(channelUuid);
 
@@ -59,7 +58,7 @@ public class TwitterStreamTest extends BaseTwitterTest {
 
         // but back filling shouldn't actually have occurred as stream had no 'last external id' in redis
         assertThat(queryRows("SELECT * FROM msgs_msg WHERE channel_id = " + channel.getChannelId()), hasSize(0));
-        assertThat(Long.parseLong(getCache().getValue(lastExtIdKey)), is(0l));
+        assertThat(querySingle("SELECT bod FROM channels_channel WHERE id = " + channel.getChannelId()).get("bod"), is("0"));
 
         stream.stop();
 

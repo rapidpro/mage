@@ -33,4 +33,13 @@ public class ChannelService extends BaseService<ChannelDao> {
     public ChannelContext getChannelByUuid(String uuid) {
         return getDao().getChannelByUuid(uuid);
     }
+
+    /**
+     * Updates the BOD value for the given channel
+     * @param channelId the channel id
+     * @param bod the BOD value
+     */
+    public void updateChannelBod(int channelId, String bod) {
+        getDao().updateChannelBod(channelId, bod);
+    }
 }

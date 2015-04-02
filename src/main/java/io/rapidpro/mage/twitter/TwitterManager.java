@@ -57,7 +57,7 @@ public class TwitterManager implements Managed {
         log.info("Starting Twitter manager node...");
 
         ThreadFactory backfillFactory = new ThreadFactoryBuilder().setNameFormat("backfill-%d").build();
-        m_backfillExecutor = Executors.newFixedThreadPool(5, backfillFactory);
+        m_backfillExecutor = Executors.newSingleThreadExecutor(backfillFactory);
 
         ThreadFactory masterFactory = new ThreadFactoryBuilder().setNameFormat("mastermgmt-%d").build();
         m_masterMgmt = Executors.newSingleThreadScheduledExecutor(masterFactory);
@@ -248,8 +248,6 @@ public class TwitterManager implements Managed {
      * @return the stream
      */
     protected TwitterStream addNodeStream(ChannelContext channel) throws Exception {
-        log.info("Adding Twitter stream for channel #" + channel.getChannelId() + "...");
-
         // if we already have a stream for this channel, return that
         TwitterStream existing = getNodeStreamByChannel(channel);
         if (existing != null) {

@@ -20,13 +20,13 @@ the table, and second identifies the item. This minimizes possible confusion of 
     <orgs_org_administrators id="-1" org_id="-11" user_id="-2" />
 
     <!-- Add topup for org #1 with 5 credits (org #1 has 3 messages so that leaves 2 remaining credits) -->
-    <orgs_topup id="-31" is_active="true" org_id="-11" credits="5" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2090-01-01 08:21:32.0" />
+    <orgs_topup id="-31" is_active="true" org_id="-11" credits="5" used="3" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2090-01-01 08:21:32.0" />
 
     <!-- Add topup for org #1 with 1 credit -->
-    <orgs_topup id="-32" is_active="true" org_id="-11" credits="1" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2100-01-01 08:21:32.0" />
+    <orgs_topup id="-32" is_active="true" org_id="-11" credits="1" used="0" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2100-01-01 08:21:32.0" />
 
     <!-- Add topup for org #2 -->
-    <orgs_topup id="-33" is_active="true" org_id="-12" credits="100" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2050-03-04 08:21:32.0" />
+    <orgs_topup id="-33" is_active="true" org_id="-12" credits="100" used="4" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" price="0" expires_on="2050-03-04 08:21:32.0" />
 
     <!-- Channel (type = Twilio, role = RECEIVE) for org #1 -->
     <channels_channel id="-41" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #1" address="+250111111111" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="T" role="R" uuid="A6977A60-77EE-46FD-BFFA-AE58A65150DA" />
@@ -64,7 +64,7 @@ the table, and second identifies the item. This minimizes possible confusion of 
     <msgs_msg id="-83" channel_id="-41" contact_id="-51" contact_urn_id="-61" org_id="-11" text="Testing" direction="O" status="D" broadcast_id="-71" external_id="SMS83" created_on="2014-01-22 23:27:01.836" sent_on="2014-01-22 23:27:02.181" delivered_on="2014-01-22 23:37:09.335" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-31" priority="500" />
 
     <!-- Outgoing messages sent from Vumi channel with a broadcast -->
-    <msgs_broadcast id="-72" is_active="true" text="Testing" status="Q" org_id="-11" created_by_id="-2" created_on="2014-04-04 10:41:10.601" modified_by_id="-2" modified_on="2014-04-04 10:41:10.601" />
+    <msgs_broadcast id="-72" is_active="true" text="Testing" status="Q" org_id="-12" created_by_id="-2" created_on="2014-04-04 10:41:10.601" modified_by_id="-2" modified_on="2014-04-04 10:41:10.601" />
     <msgs_msg id="-84" channel_id="-45" contact_id="-51" contact_urn_id="-61" org_id="-12" text="Testing" direction="O" status="W" broadcast_id="-72" external_id="SMS84" created_on="2014-01-22 23:28:01.836" sent_on="2014-01-22 23:28:02.181" delivered_on="2014-01-22 23:38:09.335" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-33" priority="500" />
     <msgs_msg id="-85" channel_id="-45" contact_id="-51" contact_urn_id="-61" org_id="-12" text="Testing" direction="O" status="S" broadcast_id="-72" external_id="SMS85" created_on="2014-01-22 23:29:01.836" sent_on="2014-01-22 23:29:02.181" delivered_on="2014-01-22 23:39:09.335" has_template_error="false" msg_type="F" msg_count="1" error_count="0" next_attempt="2014-01-22 23:25:02.15" visibility="V" topup_id="-33" priority="500" />
 
