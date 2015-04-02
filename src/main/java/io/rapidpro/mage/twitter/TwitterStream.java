@@ -221,11 +221,63 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         public void run() {
             log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (sinceId=" + m_lastMessageId + ")");
 
-            long maxMessageId = backfillTweets();
-
             backfillFollows();
 
+            long maxMessageId = backfillTweets();
+
             onBackfillComplete(maxMessageId, true);
+        }
+
+        /**
+         * Back-fills missed follows
+         */
+        protected void backfillFollows() {
+            long cursor = -1l;
+            while (true) {
+                try {
+                    PagableResponseList<User> followers = m_restClient.getFollowers(cursor);
+                    if (followers == null) {
+                        break;
+                    }
+
+                    for (User follower : followers) {
+                        // ensure contact exists for this follower
+                        ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
+                        ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
+                                urn, getChannel().getChannelId(), follower.getScreenName());
+
+                        if (contact.isNewContact()) {
+                            log.info("Follow from " + follower.getScreenName() + " back-filled and saved as new contact #" + contact.getContactId());
+
+                            // queue a request to notify Temba that the channel account has been followed
+                            TembaRequest request = TembaRequest.newFollowNotification(getChannel().getChannelId(), contact.getContactUrnId(), contact.isNewContact());
+                            m_manager.getTemba().queueRequest(request);
+                        }
+                    }
+
+                    if (followers.hasNext()) {
+                        cursor = followers.getNextCursor();
+                    } else {
+                        break;
+                    }
+
+                } catch (TwitterException ex) {
+                    if (ex.exceededRateLimitation()) {
+                        // log as error so goes to Sentry
+                        log.error("Exceeded rate limit", ex);
+
+                        RateLimitStatus status = ex.getRateLimitStatus();
+                        try {
+                            Thread.sleep(status.getSecondsUntilReset() * 1000);
+                            continue;
+
+                        } catch (InterruptedException e) {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
         }
 
         /**
@@ -300,58 +352,6 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             }
 
             return maxMessageId;
-        }
-
-        /**
-         * Back-fills missed follows
-         */
-        protected void backfillFollows() {
-            long cursor = -1l;
-            while (true) {
-                try {
-                    PagableResponseList<User> followers = m_restClient.getFollowers(cursor);
-                    if (followers == null) {
-                        break;
-                    }
-
-                    for (User follower : followers) {
-                        // ensure contact exists for this follower
-                        ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
-                        ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
-                                urn, getChannel().getChannelId(), follower.getScreenName());
-
-                        if (contact.isNewContact()) {
-                            log.info("Follow from " + follower.getScreenName() + " back-filled and saved as new contact #" + contact.getContactId());
-
-                            // queue a request to notify Temba that the channel account has been followed
-                            TembaRequest request = TembaRequest.newFollowNotification(getChannel().getChannelId(), contact.getContactUrnId(), contact.isNewContact());
-                            m_manager.getTemba().queueRequest(request);
-                        }
-                    }
-
-                    if (followers.hasNext()) {
-                        cursor = followers.getNextCursor();
-                    } else {
-                        break;
-                    }
-
-                } catch (TwitterException ex) {
-                    if (ex.exceededRateLimitation()) {
-                        // log as error so goes to Sentry
-                        log.error("Exceeded rate limit", ex);
-
-                        RateLimitStatus status = ex.getRateLimitStatus();
-                        try {
-                            Thread.sleep(status.getSecondsUntilReset() * 1000);
-                            continue;
-
-                        } catch (InterruptedException e) {
-                            break;
-                        }
-                    }
-                    break;
-                }
-            }
         }
     }
 
