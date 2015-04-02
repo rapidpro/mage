@@ -294,7 +294,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             }
 
             List<DirectMessage> all_messages = new ArrayList<>();
-            long maxMessageId = 0;
+            long maxMessageId = m_lastMessageId;
 
             // fetch all messages - Twitter will give us them in reverse chronological order
             outer:
