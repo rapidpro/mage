@@ -12,6 +12,8 @@ import io.rapidpro.mage.service.MessageService;
 import io.rapidpro.mage.temba.TembaRequest;
 import com.twitter.hbc.core.StatsReporter;
 import io.dropwizard.lifecycle.Managed;
+import org.apache.commons.lang3.tuple.ImmutablePair;
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import twitter4j.DirectMessage;
@@ -95,16 +97,19 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void start() throws Exception {
-        // for Twitter channels, bod field is used to hold the external id of last message retrieved
-        Long lastExternalId = getLastExternalId();
+        Pair<Long, Long> lastKnownState = getLastKnownState();
 
-        // if we don't have a previous last message id, then this channel is being streamed for the first time so don't
-        // try to back-fill
-        if (lastExternalId != null) {
-            m_manager.requestBackfill(new BackfillFetcherTask(lastExternalId));
+        // if we don't have a previous state, then this channel is being streamed for the first time so don't try to
+        // back-fill anything
+        if (lastKnownState == null) {
+            // save zero-ized state so we don't skip next time
+            setLastMessageId(0);
+            setLastFollowerId(0);
+
+            onBackfillComplete(false);
         }
         else {
-            onBackfillComplete(0l, false);
+            m_manager.requestBackfill(new BackfillFetcherTask(lastKnownState.getLeft(), lastKnownState.getRight()));
         }
     }
 
@@ -118,18 +123,10 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
     /**
      * Called when back-filling step is complete or skipped
-     * @param lastExternalId the maximum message id retrieved during back-fill
-     * @param performed whether back-filling was performed or skipped
+     * @param performed whether back-filling was actually performed or skipped
      */
-    public void onBackfillComplete(long lastExternalId, boolean performed) {
-        if (performed) {
-            log.info("Finished back-fill task for channel #" + getChannel().getChannelId() + " (last id is " + lastExternalId + ")");
-        }
-        else {
-            log.info("Skipped back-fill task for channel #" + getChannel().getChannelId());
-        }
-
-        setLastExternalId(lastExternalId);
+    public void onBackfillComplete(boolean performed) {
+        log.info((performed ? "Finished" : "Skipped") + " back-fill task for channel #" + getChannel().getChannelId());
 
         m_backfillComplete = true;
 
@@ -140,14 +137,10 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     /**
      * Handles an incoming direct message, whether received via streaming or back-filling
      * @param message the direct message
+     * @param fromStream whether this came from streaming or back-filling
      * @return the saved message id
      */
     protected int handleMessageReceived(DirectMessage message, boolean fromStream) {
-        // don't do anything if we are the sender
-        if (message.getSenderId() == m_handleId) {
-            return 0;
-        }
-
         IncomingContext context = new IncomingContext(m_channel.getChannelId(), null, ChannelType.TWITTER, m_channel.getOrgId(), null);
         MessageService service = m_manager.getServices().getMessageService();
         ContactUrn from = new ContactUrn(ContactUrn.Scheme.TWITTER, message.getSenderScreenName());
@@ -157,9 +150,42 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
         log.info("Direct message " + message.getId() + " " + (fromStream ? "streamed" : "back-filled") + " on channel #" + m_channel.getChannelId() + " and saved as msg #" + savedId);
 
-        setLastExternalId(message.getId());
+        setLastMessageId(message.getId());
 
         return savedId;
+    }
+
+    /**
+     * Handles a following of this handle, whether received via streaming or back-filling
+     * @param follower the new follower
+     * @param fromStream whether this came from streaming or back-filling
+     */
+    protected void handleNewFollower(User follower, boolean fromStream) {
+        // ensure contact exists for this new follower
+        ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
+        ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
+                urn, getChannel().getChannelId(), follower.getScreenName());
+
+        if (contact.isNewContact()) {
+            log.info("New follower '" + follower.getScreenName() + "' " + (fromStream ? "streamed" : "back-filled") + " on channel #" + m_channel.getChannelId() + " and saved as contact #" + contact.getContactId());
+        }
+
+        // optionally follow back
+        if (m_autoFollow) {
+            try {
+                m_restClient.createFriendship(follower.getId());
+
+                log.debug("Auto-followed user '" + follower.getScreenName() + "' on channel # " + m_channel.getChannelId());
+            } catch (TwitterException ex) {
+                log.error("Unable to auto-follow '" + follower.getScreenName() + "' on channel # " + m_channel.getChannelId(), ex);
+            }
+        }
+
+        // queue a request to notify Temba that the channel account has been followed
+        TembaRequest request = TembaRequest.newFollowNotification(getChannel().getChannelId(), contact.getContactUrnId(), contact.isNewContact());
+        m_manager.getTemba().queueRequest(request);
+
+        setLastFollowerId(follower.getId());
     }
 
     /**
@@ -167,6 +193,11 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void onDirectMessage(DirectMessage message) {
+        // don't do anything if we are the sender
+        if (message.getSenderId() == m_handleId) {
+            return;
+        }
+
         handleMessageReceived(message, true);
     }
 
@@ -180,25 +211,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             return;
         }
 
-        // optionally follow back
-        if (m_autoFollow) {
-            try {
-                m_restClient.createFriendship(follower.getId());
-
-                log.info("Auto-followed user '" + follower.getScreenName() + "' by '" + followed.getScreenName() + "'");
-            } catch (TwitterException ex) {
-                log.error("Unable to auto-follow '" + follower.getScreenName() + "' by '" + followed.getScreenName() + "'", ex);
-            }
-        }
-
-        // ensure contact exists for this new follower
-        ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
-        ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
-                urn, getChannel().getChannelId(), follower.getScreenName());
-
-        // queue a request to notify Temba that the channel account has been followed
-        TembaRequest request = TembaRequest.newFollowNotification(getChannel().getChannelId(), contact.getContactUrnId(), contact.isNewContact());
-        m_manager.getTemba().queueRequest(request);
+        handleNewFollower(follower, true);
     }
 
     /**
@@ -209,9 +222,11 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     protected class BackfillFetcherTask implements Runnable {
 
         private long m_lastMessageId;
+        private long m_lastFollowerId;
 
-        public BackfillFetcherTask(long lastMessageId) {
+        public BackfillFetcherTask(long lastMessageId, long lastFollowerId) {
             this.m_lastMessageId = lastMessageId;
+            this.m_lastFollowerId = lastFollowerId;
         }
 
         /**
@@ -219,40 +234,38 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
          */
         @Override
         public void run() {
-            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (sinceId=" + m_lastMessageId + ")");
+            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (last_message=" + m_lastMessageId + ", last_follower=" + m_lastFollowerId + ")");
 
-            backfillFollows();
+            backfillFollowers();
 
-            long maxMessageId = backfillTweets();
+            backfillMessages();
 
-            onBackfillComplete(maxMessageId, true);
+            onBackfillComplete(true);
         }
 
         /**
          * Back-fills missed follows
          */
-        protected void backfillFollows() {
+        protected void backfillFollowers() {
             long cursor = -1l;
+            List<User> newFollowers = new ArrayList<>();
+
+            outer:
             while (true) {
                 try {
+                    // this code assumes that followers are returned on order of last-to-follow first. According to
+                    // Twitter API docs this may change in the future.
                     PagableResponseList<User> followers = m_restClient.getFollowers(cursor);
                     if (followers == null) {
                         break;
                     }
 
                     for (User follower : followers) {
-                        // ensure contact exists for this follower
-                        ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
-                        ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
-                                urn, getChannel().getChannelId(), follower.getScreenName());
-
-                        if (contact.isNewContact()) {
-                            log.info("Follow from " + follower.getScreenName() + " back-filled and saved as new contact #" + contact.getContactId());
-
-                            // queue a request to notify Temba that the channel account has been followed
-                            TembaRequest request = TembaRequest.newFollowNotification(getChannel().getChannelId(), contact.getContactUrnId(), contact.isNewContact());
-                            m_manager.getTemba().queueRequest(request);
+                        if (follower.getId() == m_lastFollowerId) {
+                            break outer;
                         }
+
+                        newFollowers.add(follower);
                     }
 
                     if (followers.hasNext()) {
@@ -278,13 +291,18 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                     break;
                 }
             }
+
+            // handle all follows in chronological order
+            Collections.reverse(newFollowers);
+            for (User follower : newFollowers) {
+                handleNewFollower(follower, false);
+            }
         }
 
         /**
-         * Back-fills missed tweets
-         * @return the last message id back filled
+         * Back-fills missed direct messages
          */
-        protected long backfillTweets() {
+        protected void backfillMessages() {
             Instant now = Instant.now();
 
             int page = 1;
@@ -294,7 +312,6 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             }
 
             List<DirectMessage> all_messages = new ArrayList<>();
-            long maxMessageId = m_lastMessageId;
 
             // fetch all messages - Twitter will give us them in reverse chronological order
             outer:
@@ -315,7 +332,6 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
                         all_messages.add(message);
 
-                        maxMessageId = Math.max(maxMessageId, message.getId());
                         minPageMessageId = Math.min(minPageMessageId, message.getId());
                     }
 
@@ -350,26 +366,38 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             for (DirectMessage message : all_messages) {
                 handleMessageReceived(message, false);
             }
-
-            return maxMessageId;
         }
     }
 
-    protected Long getLastExternalId() {
-        // this was previously being stored in Redis so look there first
+    /**
+     * For Twitter channels state is stored in the bod field and comprises of the last message id and the last follower
+     * id. When starting a new channel we look for this state to determine...
+     *   1. Whether back-filling should occur (null state means new channel so no back-filling)
+     *   2. How far back back-filling should go
+     * @return the last message and follower ids as a pair
+     */
+    protected Pair<Long, Long> getLastKnownState() {
+        // message id was previously being stored in Redis so look there first
         String key = "stream_" + m_channel.getChannelUuid() + ":last_external_id";
         String val = m_manager.getCache().getValue(key);
         if (val != null) {
+            long messageIdFromRedis = Long.parseLong(val);
+
             // migrate value to channel.bod field so next time we get it from there
-            long fromRedis = Long.parseLong(val);
-            setLastExternalId(fromRedis);
+            setLastMessageId(messageIdFromRedis);
+            setLastFollowerId(0);
             m_manager.getCache().deleteValue(key);
-            return fromRedis;
+
+            return new ImmutablePair<>(messageIdFromRedis, 0l);
         }
 
+        // two ids are stored as x|y in channel bod column
         if (m_channel.getChannelBod() != null) {
             try {
-                return Long.parseLong(m_channel.getChannelBod());
+                String[] bod = m_channel.getChannelBod().split("\\|");
+                long messageId = Long.parseLong(bod[0]);
+                long followerId = bod.length > 1 ? Long.parseLong(bod[1]) : 0;
+                return new ImmutablePair<>(messageId, followerId);
             }
             catch (NumberFormatException ex) {}
         }
@@ -379,10 +407,18 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
     /**
      * Updates the last external message id record for this stream
-     * @param externalId the message id from Twitter
+     * @param messageId the message id from Twitter
      */
-    protected void setLastExternalId(long externalId) {
-        m_manager.getServices().getChannelService().updateChannelBod(m_channel.getChannelId(), String.valueOf(externalId));
+    protected void setLastMessageId(long messageId) {
+        m_manager.getServices().getChannelService().updateChannelLastMessageId(m_channel.getChannelId(), messageId);
+    }
+
+    /**
+     * Updates the last external message id record for this stream
+     * @param userId the user id from Twitter
+     */
+    protected void setLastFollowerId(long userId) {
+        m_manager.getServices().getChannelService().updateChannelLastFollowerId(m_channel.getChannelId(), userId);
     }
 
     public ChannelContext getChannel() {

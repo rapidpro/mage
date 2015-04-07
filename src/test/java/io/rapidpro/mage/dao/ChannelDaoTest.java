@@ -46,11 +46,21 @@ public class ChannelDaoTest extends BaseServicesTest {
     }
 
     /**
-     * @see io.rapidpro.mage.dao.ChannelDao#updateChannelBod(int, String)
+     * @see io.rapidpro.mage.dao.ChannelDao#updateChannelLastMessageId(int, long) and io.rapidpro.mage.dao.ChannelDao#updateChannelLastFollowerId(int, long)
      */
     @Test
-    public void updateChannelBod() throws Exception {
-        m_dao.updateChannelBod(-41, "1234");
-        assertThat(querySingle("SELECT bod FROM " + Table.CHANNEL + " WHERE id = -41").get("bod"), is("1234"));
+    public void updateChannelLastMessageAndLastFollower() throws Exception {
+        // bod field is initially blank
+        m_dao.updateChannelLastMessageId(-41, 1234l);
+        assertThat(querySingle("SELECT bod FROM " + Table.CHANNEL + " WHERE id = -41").get("bod"), is("1234|"));
+
+        m_dao.updateChannelLastMessageId(-41, 2345l);
+        assertThat(querySingle("SELECT bod FROM " + Table.CHANNEL + " WHERE id = -41").get("bod"), is("2345|"));
+
+        m_dao.updateChannelLastFollowerId(-41, 5678l);
+        assertThat(querySingle("SELECT bod FROM " + Table.CHANNEL + " WHERE id = -41").get("bod"), is("2345|5678"));
+
+        m_dao.updateChannelLastFollowerId(-41, 6789l);
+        assertThat(querySingle("SELECT bod FROM " + Table.CHANNEL + " WHERE id = -41").get("bod"), is("2345|6789"));
     }
 }

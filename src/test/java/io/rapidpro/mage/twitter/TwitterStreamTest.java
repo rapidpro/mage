@@ -58,14 +58,14 @@ public class TwitterStreamTest extends BaseTwitterTest {
 
         // but back filling shouldn't actually have occurred as stream had no 'last external id' in redis
         assertThat(queryRows("SELECT * FROM msgs_msg WHERE channel_id = " + channel.getChannelId()), hasSize(0));
-        assertThat(querySingle("SELECT bod FROM channels_channel WHERE id = " + channel.getChannelId()).get("bod"), is("0"));
+        assertThat(querySingle("SELECT bod FROM channels_channel WHERE id = " + channel.getChannelId()).get("bod"), is("0|0"));
 
         stream.stop();
 
         stream = new TwitterStream(getTwitter(), channel, "abcd", "1234");
         stream.start();
 
-        // ensure backfill "completes"
+        // ensure backfill completes
         TestUtils.assertBecomesTrue(stream::isBackfillComplete, 10_000);
 
         stream.stop();
