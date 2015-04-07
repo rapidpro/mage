@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -99,18 +100,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     public void start() throws Exception {
         Pair<Long, Long> lastKnownState = getLastKnownState();
 
-        // if we don't have a previous state, then this channel is being streamed for the first time so don't try to
-        // back-fill anything
-        if (lastKnownState == null) {
-            // save zero-ized state so we don't skip next time
-            setLastMessageId(0);
-            setLastFollowerId(0);
-
-            onBackfillComplete(false);
-        }
-        else {
-            m_manager.requestBackfill(new BackfillFetcherTask(lastKnownState.getLeft(), lastKnownState.getRight()));
-        }
+        m_manager.requestBackfill(new BackfillFetcherTask(lastKnownState.getLeft(), lastKnownState.getRight()));
     }
 
     /**
@@ -123,10 +113,9 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
     /**
      * Called when back-filling step is complete or skipped
-     * @param performed whether back-filling was actually performed or skipped
      */
-    public void onBackfillComplete(boolean performed) {
-        log.info((performed ? "Finished" : "Skipped") + " back-fill task for channel #" + getChannel().getChannelId());
+    public void onBackfillComplete() {
+        log.info("Finished back-fill task for channel #" + getChannel().getChannelId());
 
         m_backfillComplete = true;
 
@@ -221,10 +210,10 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     protected class BackfillFetcherTask implements Runnable {
 
-        private long m_lastMessageId;
-        private long m_lastFollowerId;
+        private Long m_lastMessageId;
+        private Long m_lastFollowerId;
 
-        public BackfillFetcherTask(long lastMessageId, long lastFollowerId) {
+        public BackfillFetcherTask(Long lastMessageId, Long lastFollowerId) {
             this.m_lastMessageId = lastMessageId;
             this.m_lastFollowerId = lastFollowerId;
         }
@@ -236,11 +225,33 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         public void run() {
             log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (last_message=" + m_lastMessageId + ", last_follower=" + m_lastFollowerId + ")");
 
-            backfillFollowers();
+            if (m_lastFollowerId != null) {
+                backfillFollowers();
+            }
+            else {
+                // this is a new channel so don't back-fill followers but we do grab the last follower from their list
+                // so we can use its id as a marker when back-filling next time
+                User lastFollower = null;
+                try {
+                    PagableResponseList<User> followers = m_restClient.getFollowers(-1l);
+                    if (followers != null) {
+                        Iterator<User> users = followers.iterator();
+                        lastFollower = users.hasNext() ? users.next() : null;
+                    }
+                }
+                catch (TwitterException ex) {
+                }
+                setLastFollowerId(lastFollower != null ? lastFollower.getId() : 0);
+            }
 
-            backfillMessages();
+            if (m_lastMessageId != null) {
+                backfillMessages();
+            }
+            else {
+                setLastMessageId(0l);
+            }
 
-            onBackfillComplete(true);
+            onBackfillComplete();
         }
 
         /**
@@ -388,7 +399,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             setLastFollowerId(0);
             m_manager.getCache().deleteValue(key);
 
-            return new ImmutablePair<>(messageIdFromRedis, 0l);
+            return new ImmutablePair<>(messageIdFromRedis, null);
         }
 
         // two ids are stored as x|y in channel bod column
@@ -396,13 +407,13 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             try {
                 String[] bod = m_channel.getChannelBod().split("\\|");
                 long messageId = Long.parseLong(bod[0]);
-                long followerId = bod.length > 1 ? Long.parseLong(bod[1]) : 0;
+                Long followerId = bod.length > 1 ? Long.parseLong(bod[1]) : null;
                 return new ImmutablePair<>(messageId, followerId);
             }
             catch (NumberFormatException ex) {}
         }
 
-        return null;
+        return new ImmutablePair<>(null, null);
     }
 
     /**

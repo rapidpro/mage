@@ -56,7 +56,7 @@ public class TwitterStreamTest extends BaseTwitterTest {
         TestUtils.assertBecomesTrue(stream::isBackfillComplete, 10_000);
 
         // but back filling shouldn't actually have occurred as channel is new
-        assertThat(queryRows("SELECT * FROM msgs_msg WHERE channel_id = " + channel.getChannelId()), hasSize(0));
+        assertThat(queryRows("SELECT * FROM msgs_msg WHERE channel_id = -44" ), hasSize(0));
         assertThat(querySingle("SELECT bod FROM channels_channel WHERE id = " + channel.getChannelId()).get("bod"), is("0|0"));
 
         stream.stop();
