@@ -98,6 +98,16 @@ public class MessageService extends BaseService<MessageDao> {
     }
 
     /**
+     * Gets the external id of the last message on the given channel
+     * @param channelId the channel id
+     * @param direction the message direction
+     * @return the external message id
+     */
+    public String getLastExternalId(int channelId, Direction direction) {
+        return getDao().getLastExternalId(channelId, direction);
+    }
+
+    /**
      * Creates and saves a new incoming message
      * @param context the incoming context
      * @param urn the source URN

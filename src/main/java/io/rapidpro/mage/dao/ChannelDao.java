@@ -28,9 +28,6 @@ public interface ChannelDao {
     )
     ChannelContext getChannelByUuid(@Bind("channelUuid") String uuid);
 
-    @SqlUpdate("UPDATE " + Table.CHANNEL + " SET bod = :messageId || '|' || COALESCE(SPLIT_PART(bod, '|', 2), '') WHERE id = :channelId")
-    void updateChannelLastMessageId(@Bind("channelId") int channelId, @Bind("messageId") long messageId);
-
-    @SqlUpdate("UPDATE " + Table.CHANNEL + " SET bod = COALESCE(SPLIT_PART(bod, '|', 1), '') || '|' || :userId WHERE id = :channelId")
-    void updateChannelLastFollowerId(@Bind("channelId") int channelId, @Bind("userId") long userId);
+    @SqlUpdate("UPDATE " + Table.CHANNEL + " SET bod = :bod WHERE id = :channelId")
+    void updateChannelBod(@Bind("channelId") int channelId, @Bind("bod") String bod);
 }

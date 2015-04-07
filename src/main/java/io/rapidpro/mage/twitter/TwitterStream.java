@@ -7,13 +7,12 @@ import io.rapidpro.mage.core.ChannelContext;
 import io.rapidpro.mage.core.ChannelType;
 import io.rapidpro.mage.core.ContactContext;
 import io.rapidpro.mage.core.ContactUrn;
+import io.rapidpro.mage.core.Direction;
 import io.rapidpro.mage.core.IncomingContext;
 import io.rapidpro.mage.service.MessageService;
 import io.rapidpro.mage.temba.TembaRequest;
 import com.twitter.hbc.core.StatsReporter;
 import io.dropwizard.lifecycle.Managed;
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import twitter4j.DirectMessage;
@@ -98,9 +97,9 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void start() throws Exception {
-        Pair<Long, Long> lastKnownState = getLastKnownState();
+        Long lastFollowerId = getLastFollowerId();
 
-        m_manager.requestBackfill(new BackfillFetcherTask(lastKnownState.getLeft(), lastKnownState.getRight()));
+        m_manager.requestBackfill(new BackfillFetcherTask(lastFollowerId));
     }
 
     /**
@@ -138,8 +137,6 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         int savedId = service.createIncoming(context, from, message.getText(), message.getCreatedAt(), String.valueOf(message.getId()), name);
 
         log.info("Direct message " + message.getId() + " " + (fromStream ? "streamed" : "back-filled") + " on channel #" + m_channel.getChannelId() + " and saved as msg #" + savedId);
-
-        setLastMessageId(message.getId());
 
         return savedId;
     }
@@ -210,11 +207,9 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     protected class BackfillFetcherTask implements Runnable {
 
-        private Long m_lastMessageId;
         private Long m_lastFollowerId;
 
-        public BackfillFetcherTask(Long lastMessageId, Long lastFollowerId) {
-            this.m_lastMessageId = lastMessageId;
+        public BackfillFetcherTask(Long lastFollowerId) {
             this.m_lastFollowerId = lastFollowerId;
         }
 
@@ -223,7 +218,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
          */
         @Override
         public void run() {
-            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (last_message=" + m_lastMessageId + ", last_follower=" + m_lastFollowerId + ")");
+            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (last_follower=" + m_lastFollowerId + ")");
 
             if (m_lastFollowerId != null) {
                 backfillFollowers();
@@ -244,12 +239,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                 setLastFollowerId(lastFollower != null ? lastFollower.getId() : 0);
             }
 
-            if (m_lastMessageId != null) {
-                backfillMessages();
-            }
-            else {
-                setLastMessageId(0l);
-            }
+            backfillMessages();
 
             onBackfillComplete();
         }
@@ -314,12 +304,13 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
          * Back-fills missed direct messages
          */
         protected void backfillMessages() {
+            Long lastMessageId = getLastTwitterMessageId();
             Instant now = Instant.now();
 
             int page = 1;
             Paging paging = new Paging(page, 200);
-            if (m_lastMessageId > 0) {
-                paging.setSinceId(m_lastMessageId);
+            if (lastMessageId != null) {
+                paging.setSinceId(lastMessageId);
             }
 
             List<DirectMessage> all_messages = new ArrayList<>();
@@ -378,58 +369,39 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                 handleMessageReceived(message, false);
             }
         }
+
+        protected Long getLastTwitterMessageId() {
+            String externalId = m_manager.getServices().getMessageService().getLastExternalId(m_channel.getChannelId(), Direction.INCOMING);
+            if (externalId != null) {
+                try {
+                    return Long.parseLong(externalId);
+                }
+                catch (NumberFormatException ex) {}
+            }
+            return null;
+        }
     }
 
     /**
-     * For Twitter channels state is stored in the bod field and comprises of the last message id and the last follower
-     * id. When starting a new channel we look for this state to determine...
-     *   1. Whether back-filling should occur (null state means new channel so no back-filling)
-     *   2. How far back back-filling should go
-     * @return the last message and follower ids as a pair
+     * Gets the last follower id for this stream. Returned value may be null (new channel) or zero (no followers)
+     * @return the Twitter user id
      */
-    protected Pair<Long, Long> getLastKnownState() {
-        // message id was previously being stored in Redis so look there first
-        String key = "stream_" + m_channel.getChannelUuid() + ":last_external_id";
-        String val = m_manager.getCache().getValue(key);
-        if (val != null) {
-            long messageIdFromRedis = Long.parseLong(val);
-
-            // migrate value to channel.bod field so next time we get it from there
-            setLastMessageId(messageIdFromRedis);
-            setLastFollowerId(0);
-            m_manager.getCache().deleteValue(key);
-
-            return new ImmutablePair<>(messageIdFromRedis, null);
-        }
-
-        // two ids are stored as x|y in channel bod column
+    protected Long getLastFollowerId() {
         if (m_channel.getChannelBod() != null) {
             try {
-                String[] bod = m_channel.getChannelBod().split("\\|");
-                long messageId = Long.parseLong(bod[0]);
-                Long followerId = bod.length > 1 ? Long.parseLong(bod[1]) : null;
-                return new ImmutablePair<>(messageId, followerId);
+                return Long.parseLong(m_channel.getChannelBod());
             }
             catch (NumberFormatException ex) {}
         }
-
-        return new ImmutablePair<>(null, null);
+        return null;
     }
 
     /**
-     * Updates the last external message id record for this stream
-     * @param messageId the message id from Twitter
-     */
-    protected void setLastMessageId(long messageId) {
-        m_manager.getServices().getChannelService().updateChannelLastMessageId(m_channel.getChannelId(), messageId);
-    }
-
-    /**
-     * Updates the last external message id record for this stream
+     * Updates the last follower id for this stream
      * @param userId the user id from Twitter
      */
     protected void setLastFollowerId(long userId) {
-        m_manager.getServices().getChannelService().updateChannelLastFollowerId(m_channel.getChannelId(), userId);
+        m_manager.getServices().getChannelService().updateChannelBod(m_channel.getChannelId(), String.valueOf(userId));
     }
 
     public ChannelContext getChannel() {

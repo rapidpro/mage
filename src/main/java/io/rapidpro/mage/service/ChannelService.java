@@ -35,20 +35,11 @@ public class ChannelService extends BaseService<ChannelDao> {
     }
 
     /**
-     * Updates the last message id for the given Twitter channel
+     * Updates the BOD value for the given channel
      * @param channelId the channel id
-     * @param messageId the direct message id
+     * @param bod the direct message id
      */
-    public void updateChannelLastMessageId(int channelId, long messageId) {
-        getDao().updateChannelLastMessageId(channelId, messageId);
-    }
-
-    /**
-     * Updates the last follower id for the given Twitter channel
-     * @param channelId the channel id
-     * @param userId the Twitter user id
-     */
-    public void updateChannelLastFollowerId(int channelId, long userId) {
-        getDao().updateChannelLastFollowerId(channelId, userId);
+    public void updateChannelBod(int channelId, String bod) {
+        getDao().updateChannelBod(channelId, bod);
     }
 }

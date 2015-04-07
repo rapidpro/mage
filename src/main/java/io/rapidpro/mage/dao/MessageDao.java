@@ -16,6 +16,8 @@ import org.skife.jdbi.v2.sqlobject.customizers.Mapper;
 import org.skife.jdbi.v2.sqlobject.stringtemplate.UseStringTemplate3StatementLocator;
 import org.skife.jdbi.v2.unstable.BindIn;
 import org.skife.jdbi.v2.util.IntegerMapper;
+import org.skife.jdbi.v2.util.LongMapper;
+import org.skife.jdbi.v2.util.StringMapper;
 
 import java.util.Date;
 import java.util.List;
@@ -67,6 +69,15 @@ public interface MessageDao {
     )
     @Mapper(IntegerMapper.class)
     Integer getMessage(@Bind("text") String text, @Bind("createdOn") Date createdOn, @Bind("contactId") int contactId, @BindEnum("direction") Direction direction);
+
+    @SqlQuery(
+            "SELECT external_id " +
+            "FROM " + Table.MESSAGE + " " +
+            "WHERE channel_id = :channelId AND direction = :direction " +
+            "ORDER BY id DESC LIMIT 1"
+    )
+    @Mapper(StringMapper.class)
+    String getLastExternalId(@Bind("channelId") int channelId, @BindEnum("direction") Direction direction);
 
     @SqlUpdate(
             "INSERT INTO " + Table.MESSAGE + " (channel_id, contact_id, contact_urn_id, text, direction, status, org_id, created_on, queued_on, has_template_error, msg_type, msg_count, external_id, error_count, next_attempt, visibility, priority) " +

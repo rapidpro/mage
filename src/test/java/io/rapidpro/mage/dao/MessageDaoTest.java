@@ -64,6 +64,15 @@ public class MessageDaoTest extends BaseServicesTest {
     }
 
     /**
+     * @see MessageDao#getLastExternalId(int, io.rapidpro.mage.core.Direction)
+     */
+    @Test
+    public void getLastExternalId() {
+        assertThat(m_dao.getLastExternalId(-45, Direction.INCOMING), is("SMS86"));
+        assertThat(m_dao.getLastExternalId(-46, Direction.INCOMING), nullValue());
+    }
+
+    /**
      * @see MessageDao#insertIncoming(Integer, Integer, Integer, String, Integer, java.util.Date, java.util.Date, String, int)
      */
     @Test
