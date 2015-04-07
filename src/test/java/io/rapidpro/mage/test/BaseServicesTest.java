@@ -1,6 +1,5 @@
 package io.rapidpro.mage.test;
 
-import com.google.common.io.CharStreams;
 import io.rapidpro.mage.cache.Cache;
 import io.rapidpro.mage.dao.mapper.AnnotationMapperFactory;
 import io.rapidpro.mage.service.ServiceManager;
@@ -22,7 +21,6 @@ import org.postgresql.ds.PGPoolingDataSource;
 import org.skife.jdbi.v2.DBI;
 
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -213,11 +211,6 @@ public abstract class BaseServicesTest extends BaseMageTest {
             list.add(row);
         }
         return list;
-    }
-
-    protected String loadResource(String path) throws Exception {
-        InputStreamReader in = new InputStreamReader(getClass().getClassLoader().getResourceAsStream(path));
-        return CharStreams.toString(in);
     }
 
     protected static Cache getCache() {
