@@ -12,7 +12,7 @@ import org.skife.jdbi.v2.sqlobject.SqlUpdate;
 public interface ContactDao {
 
     @SqlQuery(
-            "SELECT cu.id AS contact_urn_id, c.id AS contact_id, c.is_archived AS is_archived, r.id AS channel_id " +
+            "SELECT cu.id AS contact_urn_id, c.id AS contact_id, c.is_blocked AS is_blocked, r.id AS channel_id " +
             "FROM " + Table.CONTACT_URN + " cu " +
             "LEFT OUTER JOIN " + Table.CONTACT + " c ON c.id = cu.contact_id " +
             "LEFT OUTER JOIN " + Table.CHANNEL + " r ON r.id = cu.channel_id " +
@@ -21,8 +21,8 @@ public interface ContactDao {
     ContactContext getContactContextByOrgAndUrn(@Bind("orgId") int orgId, @Bind("urn") String urn);
 
     @SqlUpdate(
-            "INSERT INTO " + Table.CONTACT + " (org_id, name, is_active, created_by_id, created_on, modified_by_id, modified_on, is_archived, fields, is_test, status, uuid) " +
-            "VALUES(:orgId, :name, TRUE, :userId, NOW(), :userId, NOW(), FALSE, '', FALSE, 'N', :uuid)"
+            "INSERT INTO " + Table.CONTACT + " (org_id, name, is_active, created_by_id, created_on, modified_by_id, modified_on, fields, is_test, is_blocked, is_failed, uuid) " +
+            "VALUES(:orgId, :name, TRUE, :userId, NOW(), :userId, NOW(), '', FALSE, FALSE, FALSE, :uuid)"
     )
     @GetGeneratedKeys
     int insertContact(@Bind("userId") int userId, @Bind("orgId") int orgId, @Bind("name") String name, @Bind("uuid") String uuid);

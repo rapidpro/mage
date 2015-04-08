@@ -54,7 +54,7 @@ public class ContactServiceTest extends BaseServicesTest {
         assertThat(contact2Urn, hasEntry("channel_id", -42));
 
         // block (i.e. archive) the contact
-        executeSql("UPDATE " + Table.CONTACT + " SET is_archived = TRUE WHERE id = " + context1.getContactId());
+        executeSql("UPDATE " + Table.CONTACT + " SET is_blocked = TRUE WHERE id = " + context1.getContactId());
 
         ContactContext context3 = m_service.getOrCreateContact(-11, new ContactUrn(ContactUrn.Scheme.TEL, "+250735250333"), -42, "Bobby");
         assertThat(context3.getContactId(), is(context1.getContactId())); // same contact object
@@ -76,7 +76,7 @@ public class ContactServiceTest extends BaseServicesTest {
         assertThat(contact4, hasEntry("name", "Jim"));
         assertThat(contact4, hasEntry("created_by_id", -3));
         assertThat(contact4, hasEntry("modified_by_id", -3));
-        assertThat(contact4, hasEntry("is_archived", false));
+        assertThat(contact4, hasEntry("is_blocked", false));
         assertThat(contact4, hasEntry("is_active", true));
 
         Map<String, Object> contact4Urn = fetchSingleById(Table.CONTACT_URN, context4.getContactUrnId());

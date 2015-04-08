@@ -49,9 +49,11 @@ public class ContactDaoTest extends BaseServicesTest {
         Map<String, Object> contact = fetchSingleById(Table.CONTACT, contactId);
         assertThat(contact, hasEntry("org_id", -11));
         assertThat(contact, hasEntry("name", "Bob"));
+        assertThat(contact, hasEntry("created_by_id", -1));
         assertThat(contact, hasEntry("is_active", true));
         assertThat(contact, hasEntry("is_test", false));
-        assertThat(contact, hasEntry("created_by_id", -1));
+        assertThat(contact, hasEntry("is_blocked", false));
+        assertThat(contact, hasEntry("is_failed", false));
         assertThat(contact, hasEntry("uuid", "xyz"));
     }
 
