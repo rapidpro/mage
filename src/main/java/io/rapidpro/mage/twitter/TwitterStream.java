@@ -179,12 +179,18 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void onDirectMessage(DirectMessage message) {
-        // don't do anything if we are the sender
-        if (message.getSenderId() == m_handleId) {
-            return;
-        }
+        try {
+            // don't do anything if we are the sender
+            if (message.getSenderId() == m_handleId) {
+                return;
+            }
 
-        handleMessageReceived(message, true);
+            handleMessageReceived(message, true);
+        }
+        catch (Exception ex) {
+            // ensure any errors go to Sentry
+            log.error("Unable to handle message", ex);
+        }
     }
 
     /**
@@ -192,12 +198,18 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void onFollow(User follower, User followed) {
-        // don't do anything the user being followed isn't us
-        if (followed.getId() != m_handleId) {
-            return;
-        }
+        try {
+            // don't do anything the user being followed isn't us
+            if (followed.getId() != m_handleId) {
+                return;
+            }
 
-        handleNewFollower(follower, true);
+            handleNewFollower(follower, true);
+        }
+        catch (Exception ex) {
+            // ensure any errors go to Sentry
+            log.error("Unable to handle message", ex);
+        }
     }
 
     /**
