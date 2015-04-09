@@ -13,7 +13,6 @@ import io.rapidpro.mage.config.EnvAwareFileConfigurationSourceProvider;
 import io.rapidpro.mage.config.MageConfiguration;
 import io.rapidpro.mage.dao.mapper.AnnotationMapperFactory;
 import io.rapidpro.mage.health.QueueSizeCheckAndGauge;
-import io.rapidpro.mage.health.TwitterStreamsHealthCheck;
 import io.rapidpro.mage.process.MessageUpdateProcess;
 import io.rapidpro.mage.resource.ExternalResource;
 import io.rapidpro.mage.resource.TwilioResource;
@@ -139,8 +138,6 @@ public class MageApplication extends Application<MageConfiguration> {
 
         gauges.forEach(environment.metrics()::register);
         gauges.forEach(environment.healthChecks()::register);
-
-        environment.healthChecks().register("twitter.streams", new TwitterStreamsHealthCheck(twitter));
 
         // register servlets
         Servlet statusServlet = new HealthCheckServlet(environment.healthChecks());
