@@ -15,7 +15,7 @@ public class Org {
     }
 
     // cache keys
-    public static final String LOCK_KEY = "org:%d:lock:%s";
+    public static final String LOCK_KEY = "mage:org:%d:lock:%s";
 
     // cache TTLs
     public static final long LOCK_TTL = 60 * 1000;  // 1 minute

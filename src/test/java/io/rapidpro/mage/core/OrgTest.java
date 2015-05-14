@@ -16,9 +16,9 @@ public class OrgTest {
     @Test
     public void getLockKey() {
         Org org = new Org(3, null);
-        assertThat(org.getLockKey(Org.OrgLock.CONTACTS, null), is("org:3:lock:contacts"));
-        assertThat(org.getLockKey(Org.OrgLock.CREDITS, null), is("org:3:lock:credits"));
-        assertThat(org.getLockKey(Org.OrgLock.CHANNELS, null), is("org:3:lock:channels"));
-        assertThat(org.getLockKey(Org.OrgLock.FIELD, "age"), is("org:3:lock:field:age"));
+        assertThat(org.getLockKey(Org.OrgLock.CONTACTS, null), is("mage:org:3:lock:contacts"));
+        assertThat(org.getLockKey(Org.OrgLock.CREDITS, null), is("mage:org:3:lock:credits"));
+        assertThat(org.getLockKey(Org.OrgLock.CHANNELS, null), is("mage:org:3:lock:channels"));
+        assertThat(org.getLockKey(Org.OrgLock.FIELD, "age"), is("mage:org:3:lock:field:age"));
     }
 }
