@@ -18,7 +18,6 @@ import org.slf4j.LoggerFactory;
 import twitter4j.DirectMessage;
 import twitter4j.PagableResponseList;
 import twitter4j.Paging;
-import twitter4j.RateLimitStatus;
 import twitter4j.ResponseList;
 import twitter4j.TwitterException;
 import twitter4j.User;
@@ -232,75 +231,58 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         public void run() {
             log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (last_follower=" + m_lastFollowerId + ")");
 
-            if (m_lastFollowerId != null) {
-                backfillFollowers();
-            }
-            else {
-                // this is a new channel so don't back-fill followers but we do grab the last follower from their list
-                // so we can use its id as a marker when back-filling next time
-                User lastFollower = null;
-                try {
+            try {
+                if (m_lastFollowerId != null) {
+                    backfillFollowers();
+                } else {
+                    // this is a new channel so don't back-fill followers but we do grab the last follower from their list
+                    // so we can use its id as a marker when back-filling next time
+                    User lastFollower = null;
                     PagableResponseList<User> followers = m_restClient.getFollowers(-1l);
                     if (followers != null) {
                         Iterator<User> users = followers.iterator();
                         lastFollower = users.hasNext() ? users.next() : null;
                     }
+
+                    setLastFollowerId(lastFollower != null ? lastFollower.getId() : 0);
                 }
-                catch (TwitterException ex) {
-                }
-                setLastFollowerId(lastFollower != null ? lastFollower.getId() : 0);
+
+                backfillMessages();
+
+                onBackfillComplete();
             }
-
-            backfillMessages();
-
-            onBackfillComplete();
+            catch (TwitterException ex) {
+                throw new RuntimeException(ex);
+            }
         }
 
         /**
          * Back-fills missed follows
          */
-        protected void backfillFollowers() {
+        protected void backfillFollowers() throws TwitterException {
             long cursor = -1l;
             List<User> newFollowers = new ArrayList<>();
 
             outer:
             while (true) {
-                try {
-                    // this code assumes that followers are returned on order of last-to-follow first. According to
-                    // Twitter API docs this may change in the future.
-                    PagableResponseList<User> followers = m_restClient.getFollowers(cursor);
-                    if (followers == null) {
-                        break;
+                // this code assumes that followers are returned on order of last-to-follow first. According to
+                // Twitter API docs this may change in the future.
+                PagableResponseList<User> followers = m_restClient.getFollowers(cursor);
+                if (followers == null) {
+                    break;
+                }
+
+                for (User follower : followers) {
+                    if (follower.getId() == m_lastFollowerId) {
+                        break outer;
                     }
 
-                    for (User follower : followers) {
-                        if (follower.getId() == m_lastFollowerId) {
-                            break outer;
-                        }
+                    newFollowers.add(follower);
+                }
 
-                        newFollowers.add(follower);
-                    }
-
-                    if (followers.hasNext()) {
-                        cursor = followers.getNextCursor();
-                    } else {
-                        break;
-                    }
-
-                } catch (TwitterException ex) {
-                    if (ex.exceededRateLimitation()) {
-                        // log as error so goes to Sentry
-                        log.error("Exceeded rate limit", ex);
-
-                        RateLimitStatus status = ex.getRateLimitStatus();
-                        try {
-                            Thread.sleep(status.getSecondsUntilReset() * 1000);
-                            continue;
-
-                        } catch (InterruptedException e) {
-                            break;
-                        }
-                    }
+                if (followers.hasNext()) {
+                    cursor = followers.getNextCursor();
+                } else {
                     break;
                 }
             }
@@ -315,7 +297,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         /**
          * Back-fills missed direct messages
          */
-        protected void backfillMessages() {
+        protected void backfillMessages() throws TwitterException {
             Long lastMessageId = getLastTwitterMessageId();
             Instant now = Instant.now();
 
@@ -330,49 +312,31 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             // fetch all messages - Twitter will give us them in reverse chronological order
             outer:
             while (true) {
-                try {
-                    ResponseList<DirectMessage> messages = m_restClient.getDirectMessages(paging);
-                    if (messages == null) {
-                        break;
-                    }
-
-                    long minPageMessageId = 0;
-
-                    for (DirectMessage message : messages) {
-                        // check if message is too old (thus all subsequent messages are too old)
-                        if (Duration.between(message.getCreatedAt().toInstant(), now).toMillis() > BACKFILL_MAX_AGE) {
-                            break outer;
-                        }
-
-                        all_messages.add(message);
-
-                        minPageMessageId = Math.min(minPageMessageId, message.getId());
-                    }
-
-                    if (messages.size() < paging.getCount()) { // no more messages
-                        break;
-                    }
-
-                    // update paging to get next 200 DMs, ensuring that we don't take new ones into account
-                    paging.setPage(page);
-                    paging.setMaxId(minPageMessageId - 1); // see https://dev.twitter.com/rest/public/timelines
-
-                } catch (TwitterException ex) {
-                    if (ex.exceededRateLimitation()) {
-                        // log as error so goes to Sentry
-                        log.error("Exceeded rate limit", ex);
-
-                        RateLimitStatus status = ex.getRateLimitStatus();
-                        try {
-                            Thread.sleep(status.getSecondsUntilReset() * 1000);
-                            continue;
-
-                        } catch (InterruptedException e) {
-                            break;
-                        }
-                    }
+                ResponseList<DirectMessage> messages = m_restClient.getDirectMessages(paging);
+                if (messages == null) {
                     break;
                 }
+
+                long minPageMessageId = 0;
+
+                for (DirectMessage message : messages) {
+                    // check if message is too old (thus all subsequent messages are too old)
+                    if (Duration.between(message.getCreatedAt().toInstant(), now).toMillis() > BACKFILL_MAX_AGE) {
+                        break outer;
+                    }
+
+                    all_messages.add(message);
+
+                    minPageMessageId = Math.min(minPageMessageId, message.getId());
+                }
+
+                if (messages.size() < paging.getCount()) { // no more messages
+                    break;
+                }
+
+                // update paging to get next 200 DMs, ensuring that we don't take new ones into account
+                paging.setPage(page);
+                paging.setMaxId(minPageMessageId - 1); // see https://dev.twitter.com/rest/public/timelines
             }
 
             // handle all messages in chronological order

@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import twitter4j.DirectMessage;
 import twitter4j.PagableResponseList;
 import twitter4j.Paging;
+import twitter4j.RateLimitStatus;
 import twitter4j.ResponseList;
 import twitter4j.Twitter;
 import twitter4j.TwitterException;
@@ -65,6 +66,7 @@ public class TwitterClients {
     protected static class DefaultRestClient implements RestClient {
 
         private Twitter m_realClient;
+        private static int MAX_RATE_LIMIT_RETRIES = 5;
 
         public DefaultRestClient(String apiKey, String apiSecret, String authToken, String authSecret) {
             ConfigurationBuilder cb = new ConfigurationBuilder()
@@ -78,17 +80,58 @@ public class TwitterClients {
 
         @Override
         public ResponseList<DirectMessage> getDirectMessages(Paging paging) throws TwitterException {
-            return m_realClient.getDirectMessages(paging);
+            return rateLimited(() -> m_realClient.getDirectMessages(paging));
         }
 
         @Override
         public PagableResponseList<User> getFollowers(long cursor) throws TwitterException {
-            return m_realClient.getFollowersList(m_realClient.getId(), cursor, 200);
+            return rateLimited(() -> m_realClient.getFollowersList(m_realClient.getId(), cursor, 200));
         }
 
         @Override
         public void createFriendship(long userId) throws TwitterException {
-            m_realClient.createFriendship(userId);
+            rateLimited(() -> m_realClient.createFriendship(userId));
+        }
+
+        @FunctionalInterface
+        protected interface RateLimitedOperation<T> {
+            T perform() throws TwitterException;
+        }
+
+        /**
+         * Performs a rate-limited operation. If Twitter API returns a rate limit error, method waits before retrying
+         * the operation. Method is static synchronized, synchronizing calls across all client instances.
+         */
+        protected static synchronized <T> T rateLimited(RateLimitedOperation<T> operation) throws TwitterException {
+            int attempt = 1;
+            while (true) {
+                try {
+                    return operation.perform();
+                } catch (TwitterException ex) {
+                    if (ex.exceededRateLimitation()) {
+                        // log as error so goes to Sentry
+                        log.error("Exceeded rate limit", ex);
+
+                        if (attempt == MAX_RATE_LIMIT_RETRIES) {
+                            // no more retrying so re-throw
+                            throw ex;
+                        }
+
+                        RateLimitStatus status = ex.getRateLimitStatus();
+                        try {
+                            Thread.sleep(status.getSecondsUntilReset() * 1000);
+                            attempt++;
+                        } catch (InterruptedException e) {
+                            // weren't able to wait out the rate limit, so re-throw
+                            throw ex;
+                        }
+                    }
+                    else {
+                        // not a rate limit problem, so re-throw
+                        throw ex;
+                    }
+                }
+            }
         }
     }
 
