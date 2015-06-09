@@ -57,7 +57,6 @@ public class TwitterStreamTest extends BaseTwitterTest {
 
         // but back filling shouldn't actually have occurred as channel is new
         assertThat(queryRows("SELECT * FROM msgs_msg WHERE channel_id = -44" ), hasSize(0));
-        assertThat(querySingle("SELECT bod FROM channels_channel WHERE id = " + channel.getChannelId()).get("bod"), is("0"));
 
         stream.stop();
 
@@ -73,19 +72,16 @@ public class TwitterStreamTest extends BaseTwitterTest {
 
         assertThat(queryRows("SELECT * FROM msgs_msg WHERE channel_id = -44"), hasSize(1));
         assertThat(queryRows("SELECT * FROM contacts_contact WHERE org_id = -11"), hasSize(2));
-        assertThat(querySingle("SELECT bod FROM channels_channel WHERE id = -44").get("bod"), is("0"));
 
         // another user follows channel user
         stream.onFollow(createTwitterUser("twitter/user_2.json"), createTwitterUser("twitter/user_1.json"));
 
         assertThat(queryRows("SELECT * FROM contacts_contact WHERE org_id = -11"), hasSize(3));
-        assertThat(querySingle("SELECT bod FROM channels_channel WHERE id = -44").get("bod"), is("2960784075"));
 
         // channel user following them back shouldn't add anything
         stream.onFollow(createTwitterUser("twitter/user_1.json"), createTwitterUser("twitter/user_2.json"));
 
         assertThat(queryRows("SELECT * FROM contacts_contact WHERE org_id = -11"), hasSize(3));
-        assertThat(querySingle("SELECT bod FROM channels_channel WHERE id = -44").get("bod"), is("2960784075"));
 
         stream.stop();
     }

@@ -73,18 +73,5 @@ public class TwitterManagerTest extends BaseTwitterTest {
 
         // wait for stream to be added
         TestUtils.assertBecomesTrue(() -> getTwitter().getNodeStreamByChannel(channel) != null, 10_000);
-
-        // in the initial dataset, auto-following is enabled for this channel
-        assertThat(getTwitter().getNodeStreamByChannel(channel).isAutoFollow(), is(true));
-
-        // request manager to update stream based on change to auto_follow in config
-        ObjectNode config = channel.getChannelConfig();
-        config.put("auto_follow", false);
-        executeSql(String.format("UPDATE channels_channel SET config = '%s' WHERE uuid = '%s'", JsonUtils.encode(config), channelUuid));
-        ChannelContext updatedChannel = getServices().getChannelService().getChannelByUuid(channelUuid);
-
-        getTwitter().requestStreamOperation(updatedChannel, StreamOperation.Action.UPDATE);
-
-        TestUtils.assertBecomesTrue(() -> !getTwitter().getNodeStreamByChannel(channel).isAutoFollow(), 10_000);
     }
 }

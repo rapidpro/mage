@@ -16,7 +16,6 @@ import io.dropwizard.lifecycle.Managed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import twitter4j.DirectMessage;
-import twitter4j.PagableResponseList;
 import twitter4j.Paging;
 import twitter4j.ResponseList;
 import twitter4j.TwitterException;
@@ -27,7 +26,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -43,14 +41,12 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     protected static final String CONFIG_HANDLE_ID = "handle_id";
     protected static final String CONFIG_TOKEN = "oauth_token";
     protected static final String CONFIG_TOKEN_SECRET = "oauth_token_secret";
-    protected static final String CONFIG_AUTO_FOLLOW = "auto_follow";
 
     protected static final long BACKFILL_MAX_AGE = 60 * 60 * 1000; // 1 hour (in millis)
 
     private final TwitterManager m_manager;
     private final ChannelContext m_channel;
     private long m_handleId;
-    private boolean m_autoFollow;
 
     private TwitterClients.RestClient m_restClient;
     private TwitterClients.StreamingClient m_streamingClient;
@@ -87,8 +83,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      * @param config the configuration JSON
      */
     public void updateFromConfig(ObjectNode config) {
-        JsonNode autoFollow = config.get(CONFIG_AUTO_FOLLOW);
-        m_autoFollow = autoFollow == null || autoFollow.booleanValue();
+        // currently no-op as there are no config options
     }
 
     /**
@@ -96,9 +91,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void start() throws Exception {
-        Long lastFollowerId = getLastFollowerId();
-
-        m_manager.requestBackfill(new BackfillFetcherTask(lastFollowerId));
+        m_manager.requestBackfill(new BackfillFetcherTask());
     }
 
     /**
@@ -143,34 +136,20 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     /**
      * Handles a following of this handle, whether received via streaming or back-filling
      * @param follower the new follower
-     * @param fromStream whether this came from streaming or back-filling
      */
-    protected void handleNewFollower(User follower, boolean fromStream) {
+    protected void handleNewFollower(User follower) {
         // ensure contact exists for this new follower
         ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
         ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
                 urn, getChannel().getChannelId(), follower.getScreenName());
 
         if (contact.isNewContact()) {
-            log.info("New follower '" + follower.getScreenName() + "' " + (fromStream ? "streamed" : "back-filled") + " on channel #" + m_channel.getChannelId() + " and saved as contact #" + contact.getContactId());
-        }
-
-        // optionally follow back
-        if (m_autoFollow) {
-            try {
-                m_restClient.createFriendship(follower.getId());
-
-                log.debug("Auto-followed user '" + follower.getScreenName() + "' on channel # " + m_channel.getChannelId());
-            } catch (TwitterException ex) {
-                log.error("Unable to auto-follow '" + follower.getScreenName() + "' on channel # " + m_channel.getChannelId(), ex);
-            }
+            log.info("New follower '" + follower.getScreenName() + "' on channel #" + m_channel.getChannelId() + " and saved as contact #" + contact.getContactId());
         }
 
         // queue a request to notify Temba that the channel account has been followed
         TembaRequest request = TembaRequest.newFollowNotification(getChannel().getChannelId(), contact.getContactUrnId(), contact.isNewContact());
         m_manager.getTemba().queueRequest(request);
-
-        setLastFollowerId(follower.getId());
     }
 
     /**
@@ -203,7 +182,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                 return;
             }
 
-            handleNewFollower(follower, true);
+            handleNewFollower(follower);
         }
         catch (Exception ex) {
             // ensure any errors go to Sentry
@@ -212,85 +191,26 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     }
 
     /**
-     * Background task which fetches potentially missed tweets and follows using the REST API. This happens in a task
-     * so the Twitter Manager can run multiple back-fill tasks sequentially, making it easier to respect the Twitter API
+     * Background task which fetches potentially missed tweets using the REST API. This happens in a task so the
+     * Twitter Manager can execute all back-fill tasks sequentially, making it easier to respect the Twitter API
      * rate limits.
      */
     protected class BackfillFetcherTask implements Runnable {
-
-        private Long m_lastFollowerId;
-
-        public BackfillFetcherTask(Long lastFollowerId) {
-            this.m_lastFollowerId = lastFollowerId;
-        }
 
         /**
          * @see Runnable#run()
          */
         @Override
         public void run() {
-            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (last_follower=" + m_lastFollowerId + ")");
+            log.info("Starting back-fill task for channel #" + getChannel().getChannelId());
 
             try {
-                if (m_lastFollowerId != null) {
-                    backfillFollowers();
-                } else {
-                    // this is a new channel so don't back-fill followers but we do grab the last follower from their list
-                    // so we can use its id as a marker when back-filling next time
-                    User lastFollower = null;
-                    PagableResponseList<User> followers = m_restClient.getFollowers(-1l);
-                    if (followers != null) {
-                        Iterator<User> users = followers.iterator();
-                        lastFollower = users.hasNext() ? users.next() : null;
-                    }
-
-                    setLastFollowerId(lastFollower != null ? lastFollower.getId() : 0);
-                }
-
                 backfillMessages();
 
                 onBackfillComplete();
             }
             catch (TwitterException ex) {
                 throw new RuntimeException(ex);
-            }
-        }
-
-        /**
-         * Back-fills missed follows
-         */
-        protected void backfillFollowers() throws TwitterException {
-            long cursor = -1l;
-            List<User> newFollowers = new ArrayList<>();
-
-            outer:
-            while (true) {
-                // this code assumes that followers are returned on order of last-to-follow first. According to
-                // Twitter API docs this may change in the future.
-                PagableResponseList<User> followers = m_restClient.getFollowers(cursor);
-                if (followers == null) {
-                    break;
-                }
-
-                for (User follower : followers) {
-                    if (follower.getId() == m_lastFollowerId) {
-                        break outer;
-                    }
-
-                    newFollowers.add(follower);
-                }
-
-                if (followers.hasNext()) {
-                    cursor = followers.getNextCursor();
-                } else {
-                    break;
-                }
-            }
-
-            // handle all follows in chronological order
-            Collections.reverse(newFollowers);
-            for (User follower : newFollowers) {
-                handleNewFollower(follower, false);
             }
         }
 
@@ -358,28 +278,6 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         }
     }
 
-    /**
-     * Gets the last follower id for this stream. Returned value may be null (new channel) or zero (no followers)
-     * @return the Twitter user id
-     */
-    protected Long getLastFollowerId() {
-        if (m_channel.getChannelBod() != null) {
-            try {
-                return Long.parseLong(m_channel.getChannelBod());
-            }
-            catch (NumberFormatException ex) {}
-        }
-        return null;
-    }
-
-    /**
-     * Updates the last follower id for this stream
-     * @param userId the user id from Twitter
-     */
-    protected void setLastFollowerId(long userId) {
-        m_manager.getServices().getChannelService().updateChannelBod(m_channel.getChannelId(), String.valueOf(userId));
-    }
-
     public ChannelContext getChannel() {
         return m_channel;
     }
@@ -394,9 +292,5 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
     public boolean isBackfillComplete() {
         return m_backfillComplete;
-    }
-
-    public boolean isAutoFollow() {
-        return m_autoFollow;
     }
 }
