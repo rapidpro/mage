@@ -13,6 +13,7 @@ import io.rapidpro.mage.service.MessageService;
 import io.rapidpro.mage.temba.TembaRequest;
 import com.twitter.hbc.core.StatsReporter;
 import io.dropwizard.lifecycle.Managed;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import twitter4j.DirectMessage;
@@ -50,7 +51,8 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
     private TwitterClients.RestClient m_restClient;
     private TwitterClients.StreamingClient m_streamingClient;
-    private boolean m_backfillComplete = false;
+    private boolean m_backfilled = false;
+    private boolean m_streaming = false;
 
     public TwitterStream(TwitterManager manager, ChannelContext channel, String apiKey, String apiSecret) throws ChannelConfigException {
         this.m_manager = manager;
@@ -91,7 +93,16 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void start() throws Exception {
-        m_manager.requestBackfill(new BackfillFetcherTask());
+        if (StringUtils.isEmpty(m_channel.getChannelBod())) {
+            // this channel is new so don't really back-fill
+            onBackfillComplete(false);
+        }
+        else {
+            m_manager.requestBackfill(new BackfillFetcherTask());
+        }
+
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        m_manager.getServices().getChannelService().updateChannelBod(m_channel.getChannelId(), timestamp);
     }
 
     /**
@@ -105,13 +116,15 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     /**
      * Called when back-filling step is complete or skipped
      */
-    public void onBackfillComplete() {
-        log.info("Finished back-fill task for channel #" + getChannel().getChannelId());
+    public void onBackfillComplete(boolean performed) {
+        log.info((performed ? "Finished" : "Skipped") + " back-fill task for channel #" + getChannel().getChannelId());
 
-        m_backfillComplete = true;
+        m_backfilled = performed;
 
         // to preserve message order, only start streaming after back-filling is complete
         m_streamingClient.start(this);
+
+        m_streaming = true;
     }
 
     /**
@@ -134,10 +147,10 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     }
 
     /**
-     * Handles a following of this handle, whether received via streaming or back-filling
+     * Handles a following of this handle
      * @param follower the new follower
      */
-    protected void handleNewFollower(User follower) {
+    protected void handleFollow(User follower) {
         // ensure contact exists for this new follower
         ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
         ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
@@ -150,6 +163,15 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         // queue a request to notify Temba that the channel account has been followed
         TembaRequest request = TembaRequest.newFollowNotification(getChannel().getChannelId(), contact.getContactUrnId(), contact.isNewContact());
         m_manager.getTemba().queueRequest(request);
+    }
+
+    /**
+     * Handles an un-following of this handle
+     * @param unfollower the user that unfollowed
+     */
+    protected void handleUnollow(User unfollower) {
+        // for now just log this
+        log.info("Un-followed by '" + unfollower.getScreenName() + "' on channel #" + m_channel.getChannelId());
     }
 
     /**
@@ -182,12 +204,32 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                 return;
             }
 
-            handleNewFollower(follower);
+            handleFollow(follower);
         }
         catch (Exception ex) {
             // ensure any errors go to Sentry
-            log.error("Unable to handle message", ex);
+            log.error("Unable to handle new follow", ex);
         }
+    }
+
+    /**
+     * @see UserStreamAdapter#onFollow(twitter4j.User, twitter4j.User)
+     */
+    @Override
+    public void onUnfollow(User source, User unfollowed) {
+        try {
+            // don't do anything the user being un-followed isn't us
+            if (unfollowed.getId() != m_handleId) {
+                return;
+            }
+
+            handleUnollow(unfollowed);
+        }
+        catch (Exception ex) {
+            // ensure any errors go to Sentry
+            log.error("Unable to handle unfollow", ex);
+        }
+
     }
 
     /**
@@ -207,7 +249,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             try {
                 backfillMessages();
 
-                onBackfillComplete();
+                onBackfillComplete(true);
             }
             catch (TwitterException ex) {
                 throw new RuntimeException(ex);
@@ -290,7 +332,11 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         return m_handleId;
     }
 
-    public boolean isBackfillComplete() {
-        return m_backfillComplete;
+    public boolean isBackfilled() {
+        return m_backfilled;
+    }
+
+    public boolean isStreaming() {
+        return m_streaming;
     }
 }

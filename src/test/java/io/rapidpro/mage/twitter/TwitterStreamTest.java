@@ -52,21 +52,26 @@ public class TwitterStreamTest extends BaseTwitterTest {
 
         stream.start();
 
-        // ensure backfill "completes"
-        TestUtils.assertBecomesTrue(stream::isBackfillComplete, 10_000);
+        // ensure streaming starts
+        TestUtils.assertBecomesTrue(stream::isStreaming, 10_000);
 
-        // but back filling shouldn't actually have occurred as channel is new
+        // but back-filling shouldn't actually have occurred as channel is new
+        assertThat(stream.isBackfilled(), is(false));
         assertThat(queryRows("SELECT * FROM msgs_msg WHERE channel_id = -44" ), hasSize(0));
 
         stream.stop();
 
+        channel = getServices().getChannelService().getChannelByUuid(channelUuid);
         stream = new TwitterStream(getTwitter(), channel, "abcd", "1234");
         stream.start();
 
         // TODO figure out a good way to test saving and back-filling actual direct messages
 
-        // ensure backfill completes
-        TestUtils.assertBecomesTrue(stream::isBackfillComplete, 10_000);
+        // ensure streaming starts
+        TestUtils.assertBecomesTrue(stream::isStreaming, 10_000);
+
+        // and back-filling actually happened
+        assertThat(stream.isBackfilled(), is(true));
 
         stream.onDirectMessage(createDirectMessage("twitter/direct_message_1.json"));
 
