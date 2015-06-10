@@ -74,7 +74,7 @@ public interface MessageDao {
             "SELECT external_id " +
             "FROM " + Table.MESSAGE + " " +
             "WHERE channel_id = :channelId AND direction = :direction " +
-            "ORDER BY id DESC LIMIT 1"
+            "ORDER BY id DESC, created_on DESC LIMIT 1" // see http://stackoverflow.com/questions/21385555/postgresql-query-very-slow-with-limit-1
     )
     @Mapper(StringMapper.class)
     String getLastExternalId(@Bind("channelId") int channelId, @BindEnum("direction") Direction direction);
