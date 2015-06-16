@@ -56,6 +56,8 @@ public class TembaClients {
                     .header("Authorization", "Token " + m_authKey)
                     .post(Entity.form(form));
 
+            log.info(target.getUri().toString() + " responded with status " + response.getStatus());
+
             if (log.isDebugEnabled()) {
                 String body = response.readEntity(String.class);
                 log.debug(target.toString() + " -> " + body);

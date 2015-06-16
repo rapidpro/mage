@@ -158,6 +158,8 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
         if (contact.isNewContact()) {
             log.info("New follower '" + follower.getScreenName() + "' on channel #" + m_channel.getChannelId() + " and saved as contact #" + contact.getContactId());
+        } else {
+            log.info("New follower '" + follower.getScreenName() + "' on channel #" + m_channel.getChannelId() + " is existing contact #" + contact.getContactId());
         }
 
         // queue a request to notify Temba that the channel account has been followed
@@ -169,7 +171,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      * Handles an un-following of this handle
      * @param unfollower the user that unfollowed
      */
-    protected void handleUnollow(User unfollower) {
+    protected void handleUnfollow(User unfollower) {
         // for now just log this
         log.info("Un-followed by '" + unfollower.getScreenName() + "' on channel #" + m_channel.getChannelId());
     }
@@ -223,7 +225,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
                 return;
             }
 
-            handleUnollow(unfollowed);
+            handleUnfollow(unfollowed);
         }
         catch (Exception ex) {
             // ensure any errors go to Sentry
