@@ -15,14 +15,14 @@ import java.util.List;
 public interface ChannelDao {
 
     @SqlQuery(
-            "SELECT c.id AS channel_id, c.uuid AS channel_uuid, c.channel_type AS channel_type, c.config AS channel_config, c.bod AS channel_bod, c.org_id AS org_id " +
+            "SELECT c.id AS channel_id, c.uuid AS channel_uuid, c.address AS channel_address, c.channel_type AS channel_type, c.config AS channel_config, c.bod AS channel_bod, c.org_id AS org_id " +
             "FROM " + Table.CHANNEL + " c " +
             "WHERE c.is_active = TRUE AND c.channel_type = :channelType"
     )
     List<ChannelContext> getChannelsByType(@BindEnum("channelType") ChannelType type);
 
     @SqlQuery(
-            "SELECT c.id AS channel_id, c.uuid AS channel_uuid, c.channel_type AS channel_type, c.config AS channel_config, c.bod AS channel_bod, c.org_id AS org_id " +
+            "SELECT c.id AS channel_id, c.uuid AS channel_uuid, c.address AS channel_address, c.channel_type AS channel_type, c.config AS channel_config, c.bod AS channel_bod, c.org_id AS org_id " +
             "FROM " + Table.CHANNEL + " c " +
             "WHERE c.uuid = :channelUuid"
     )

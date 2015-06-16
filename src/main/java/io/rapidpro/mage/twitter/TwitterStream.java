@@ -215,7 +215,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     }
 
     /**
-     * @see UserStreamAdapter#onFollow(twitter4j.User, twitter4j.User)
+     * @see UserStreamAdapter#onUnfollow(twitter4j.User, twitter4j.User)
      */
     @Override
     public void onUnfollow(User source, User unfollowed) {
@@ -246,7 +246,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
          */
         @Override
         public void run() {
-            log.info("Starting back-fill task for channel #" + getChannel().getChannelId());
+            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (" + getChannel().getChannelAddress() + ")");
 
             try {
                 backfillMessages();

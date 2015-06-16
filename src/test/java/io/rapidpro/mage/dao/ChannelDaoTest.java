@@ -26,6 +26,7 @@ public class ChannelDaoTest extends BaseServicesTest {
         assertThat(nexmo, hasSize(1));
         assertThat(nexmo.get(0).getChannelId(), is(-42));
         assertThat(nexmo.get(0).getChannelUuid(), is("B8E3F824-D4B3-4A59-91E1-45BFF6D74263"));
+        assertThat(nexmo.get(0).getChannelAddress(), is("+250222222222"));
         assertThat(nexmo.get(0).getChannelType(), is(ChannelType.NEXMO));
         assertThat(nexmo.get(0).getChannelConfig(), nullValue());
         assertThat(nexmo.get(0).getOrgId(), is(-11));
