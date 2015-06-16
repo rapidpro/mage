@@ -168,7 +168,13 @@ public class TwitterClients {
 
         public DefaultStreamingClient(String apiKey, String apiSecret, String authToken, String authSecret) {
             Authentication auth = new OAuth1(apiKey, apiSecret, authToken, authSecret);
+
+            // we don't need activity of people we follow
             UserstreamEndpoint endpoint = new UserstreamEndpoint();
+            endpoint.withFollowings(false);
+            endpoint.withUser(true);
+            endpoint.allReplies(false);
+
             m_hbcClientBuilder = new ClientBuilder()
                     .hosts(new HttpHosts(Constants.USERSTREAM_HOST))
                     .authentication(auth)
@@ -179,10 +185,9 @@ public class TwitterClients {
         @Override
         public void start(UserStreamListener listener) {
             Client hbcClient = m_hbcClientBuilder.build();
-            ExecutorService streamingExecutor = Executors.newFixedThreadPool(2);
+            ExecutorService streamingExecutor = Executors.newFixedThreadPool(1);
             m_realClient = new Twitter4jUserstreamClient(hbcClient, m_streamingQueue, Arrays.asList(listener), streamingExecutor);
             m_realClient.connect();
-            m_realClient.process();
             m_realClient.process();
         }
 
