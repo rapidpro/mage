@@ -255,10 +255,10 @@ public class TwitterManager implements Managed {
         }
 
         TwitterStream stream = new TwitterStream(this, channel, m_apiKey, m_apiSecret);
-        stream.start();
         m_streams.add(stream);
+        log.info("Added Twitter stream for handle " + channel.getChannelAddress() + " (" + stream.getHandleId() + ") on channel #" + channel.getChannelId());
 
-        log.info("Added Twitter stream for channel #" + channel.getChannelId() + " to handle " + stream.getHandleId());
+        stream.start();
 
         return stream;
     }
@@ -283,14 +283,16 @@ public class TwitterManager implements Managed {
      * @param channel the channel context
      */
     protected void removeNodeStream(ChannelContext channel) throws Exception {
-        log.info("Removing Twitter stream for channel #" + channel.getChannelId());
-
         // if we already have a stream for this channel, return that
         TwitterStream stream = getNodeStreamByChannel(channel);
-        if (stream != null) {
-            stream.stop();
-            m_streams.remove(stream);
+        if (stream == null) {
+            throw new RuntimeException("No Twitter stream active for channel #" + channel.getChannelId());
         }
+
+        stream.stop();
+        m_streams.remove(stream);
+
+        log.info("Removed Twitter stream for handle " + channel.getChannelAddress() + " (" + stream.getHandleId() + ") on channel #" + channel.getChannelId());
     }
 
     public void requestBackfill(TwitterStream.BackfillFetcherTask task) {

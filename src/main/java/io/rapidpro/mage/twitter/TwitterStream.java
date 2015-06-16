@@ -246,7 +246,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
          */
         @Override
         public void run() {
-            log.info("Starting back-fill task for channel #" + getChannel().getChannelId() + " (" + getChannel().getChannelAddress() + ")");
+            log.info("Starting back-fill task for channel #" + getChannel().getChannelId());
 
             try {
                 backfillMessages();
