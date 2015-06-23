@@ -1,6 +1,8 @@
 language: java
 addons:
   postgresql: "9.2"
+services:
+  - redis-server
 jdk:
   - oraclejdk8
 before_script:
