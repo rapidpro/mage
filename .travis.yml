@@ -4,5 +4,5 @@ addons:
 jdk:
   - oraclejdk8
 before_script:
-  - psql -f "testdb/init.sql"
-  - psql -d temba_mage_tests -f "testdb/schema.sql"
+  - psql -U postgres -f "testdb/init.sql"
+  - psql -U postgres -d temba_mage_tests -f "testdb/schema.sql"
