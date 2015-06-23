@@ -10,7 +10,7 @@ fi
 
 TEST_DB="temba_mage_tests"
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-TEMP_DUMP_FILE="${DIR}/schema.tmp.sql"
+SCHEMA_FILE="${DIR}/schema.sql"
 
 echo "Dropping (if necessary) and creating database '${TEST_DB}'"
 
@@ -18,12 +18,10 @@ psql -q -f "${DIR}/init.sql"
 
 echo "Dumping schema from local database..."
 
-pg_dump --schema-only --no-owner $1 > "${TEMP_DUMP_FILE}"
+pg_dump --schema-only --no-owner $1 > "${SCHEMA_FILE}"
 
 echo "Loading Temba schema into '${TEST_DB}'"
 
-psql -q -d ${TEST_DB} -f "${TEMP_DUMP_FILE}"
-
-rm "${TEMP_DUMP_FILE}"
+psql -q -d ${TEST_DB} -f "${SCHEMA_FILE}"
 
 echo "Testing database initialized"
