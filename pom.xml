@@ -95,7 +95,7 @@
         <dependency>
             <groupId>com.tradier</groupId>
             <artifactId>dropwizard-raven</artifactId>
-            <version>0.0.1</version>
+            <version>0.1.2</version>
         </dependency>
         <!-- utility libraries -->
         <dependency>

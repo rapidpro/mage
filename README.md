@@ -6,12 +6,6 @@ on behalf of [RapidPro](https://github.com/rapidpro/rapidpro).
 
 Building
 --------
-Currently one of the dependencies doesn't exist in Maven Central so must be built locally:
-
-    git clone git@github.com:tradier/dropwizard-raven.git
-    cd dropwizard-raven
-    git checkout fc2d93f7710d4e32ca727110d3eb3093b15b4de6
-    mvn clean install
 
 Without tests:
 
