@@ -243,6 +243,13 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         super.onTrackLimitationNotice(numberOfLimitedStatuses);
     }
 
+    @Override
+    public void onException(Exception ex) {
+        log.error("Exception in Twitter stream", ex);
+
+        super.onException(ex);
+    }
+
     /**
      * Background task which fetches potentially missed tweets using the REST API. This happens in a task so the
      * Twitter Manager can execute all back-fill tasks sequentially, making it easier to respect the Twitter API
