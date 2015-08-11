@@ -231,7 +231,16 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             // ensure any errors go to Sentry
             log.error("Unable to handle unfollow", ex);
         }
+    }
 
+    /**
+     * @see twitter4j.StatusAdapter#onTrackLimitationNotice(int)
+     */
+    @Override
+    public void onTrackLimitationNotice(int numberOfLimitedStatuses) {
+        log.warn("Track limitation notice: " + numberOfLimitedStatuses);
+
+        super.onTrackLimitationNotice(numberOfLimitedStatuses);
     }
 
     /**
