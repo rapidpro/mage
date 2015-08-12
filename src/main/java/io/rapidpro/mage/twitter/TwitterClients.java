@@ -24,6 +24,8 @@ import twitter4j.User;
 import twitter4j.UserStreamListener;
 import twitter4j.conf.ConfigurationBuilder;
 
+import javax.annotation.Nullable;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -179,7 +181,7 @@ public class TwitterClients {
                     .hosts(new HttpHosts(Constants.USERSTREAM_HOST))
                     .authentication(auth)
                     .endpoint(endpoint)
-                    .processor(new StringDelimitedProcessor(m_streamingQueue));
+                    .processor(new MessageProcessor(m_streamingQueue));
         }
 
         @Override
@@ -199,6 +201,25 @@ public class TwitterClients {
         @Override
         public StatsReporter.StatsTracker getStatsTracker() {
             return m_realClient.getStatsTracker();
+        }
+
+        /**
+         * Override the regular message processor to allow debug logging
+         */
+        protected class MessageProcessor extends StringDelimitedProcessor {
+            public MessageProcessor(BlockingQueue<String> queue) {
+                super(queue);
+            }
+
+            @Nullable
+            @Override
+            protected String processNextMessage() throws IOException {
+                String msg = super.processNextMessage();
+                if (log.isDebugEnabled()) {
+                    log.debug(msg);
+                }
+                return msg;
+            }
         }
     }
 
