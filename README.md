@@ -40,6 +40,19 @@ And then is invoked like:
 
     ./env.sh java -jar `ls target/mage-*.jar` server config.yml
 
+Logging
+-------
+To enable logging of Twitter stream messages, update the logging section of _config.yml_
+
+    logging:
+        appenders:
+          - type: console
+            threshold: DEBUG
+            target: stdout
+        loggers:
+            "com.sun.jersey.api.container.filter.LoggingFilter": DEBUG
+            "io.rapidpro.mage.twitter.TwitterClients": DEBUG
+
 Debugging
 ---------
 In IntelliJ:
