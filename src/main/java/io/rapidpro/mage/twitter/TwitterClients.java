@@ -181,7 +181,7 @@ public class TwitterClients {
                     .hosts(new HttpHosts(Constants.USERSTREAM_HOST))
                     .authentication(auth)
                     .endpoint(endpoint)
-                    .processor(new MessageProcessor(m_streamingQueue));
+                    .processor(new MessageProcessor(m_streamingQueue, this));
         }
 
         @Override
@@ -207,16 +207,20 @@ public class TwitterClients {
          * Override the regular message processor to allow debug logging
          */
         protected class MessageProcessor extends StringDelimitedProcessor {
-            public MessageProcessor(BlockingQueue<String> queue) {
+            private DefaultStreamingClient client;
+
+            public MessageProcessor(BlockingQueue<String> queue, DefaultStreamingClient client) {
                 super(queue);
+                this.client = client;
             }
 
             @Nullable
             @Override
             protected String processNextMessage() throws IOException {
                 String msg = super.processNextMessage();
-                if (log.isDebugEnabled()) {
-                    log.debug(msg);
+
+                if (log.isDebugEnabled() && msg != null) {
+                    log.debug("Client #" + System.identityHashCode(client) + " received message: " + msg);
                 }
                 return msg;
             }
