@@ -6,6 +6,10 @@ import io.rapidpro.mage.test.BaseTwitterTest;
 import io.rapidpro.mage.test.TestUtils;
 import org.junit.Test;
 
+import java.util.List;
+import java.util.Map;
+
+import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -76,17 +80,44 @@ public class TwitterStreamTest extends BaseTwitterTest {
         stream.onDirectMessage(createDirectMessage("twitter/direct_message_1.json"));
 
         assertThat(queryRows("SELECT * FROM msgs_msg WHERE channel_id = -44"), hasSize(1));
-        assertThat(queryRows("SELECT * FROM contacts_contact WHERE org_id = -11"), hasSize(2));
+
+        List<Map<String, Object>> contacts = queryRows("SELECT * FROM contacts_contact WHERE org_id = -11 ORDER BY created_on");
+        assertThat(contacts, hasSize(2));
+        assertThat(contacts.get(0), hasEntry("name", "Nicolas"));
+        assertThat(contacts.get(1), hasEntry("name", "Norbert Kwizera"));
 
         // another user follows channel user
         stream.onFollow(createTwitterUser("twitter/user_2.json"), createTwitterUser("twitter/user_1.json"));
 
-        assertThat(queryRows("SELECT * FROM contacts_contact WHERE org_id = -11"), hasSize(3));
+        contacts = queryRows("SELECT * FROM contacts_contact WHERE org_id = -11 ORDER BY created_on");
+        assertThat(contacts, hasSize(3));
+        assertThat(contacts.get(2), hasEntry("name", "Bosco"));
 
         // channel user following them back shouldn't add anything
         stream.onFollow(createTwitterUser("twitter/user_1.json"), createTwitterUser("twitter/user_2.json"));
 
         assertThat(queryRows("SELECT * FROM contacts_contact WHERE org_id = -11"), hasSize(3));
+
+        // make org anonymous and restart stream
+        executeSql("UPDATE orgs_org SET is_anon = TRUE WHERE id = -11");
+        stream.stop();
+        channel = getServices().getChannelService().getChannelByUuid(channelUuid);
+        stream = new TwitterStream(getTwitter(), channel, "abcd", "1234");
+        stream.start();
+
+        // now when we receive a new DM, new contact should be nameless
+        stream.onDirectMessage(createDirectMessage("twitter/direct_message_2.json"));
+
+        contacts = queryRows("SELECT * FROM contacts_contact WHERE org_id = -11 ORDER BY created_on");
+        assertThat(contacts, hasSize(4));
+        assertThat(contacts.get(3), hasEntry("name", null));
+
+        // also when followed...
+        stream.onFollow(createTwitterUser("twitter/user_3.json"), createTwitterUser("twitter/user_1.json"));
+
+        contacts = queryRows("SELECT * FROM contacts_contact WHERE org_id = -11 ORDER BY created_on");
+        assertThat(contacts, hasSize(5));
+        assertThat(contacts.get(4), hasEntry("name", null));
 
         stream.stop();
     }

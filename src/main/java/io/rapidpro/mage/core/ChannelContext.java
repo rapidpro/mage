@@ -32,6 +32,9 @@ public class ChannelContext {
     @JsonProperty("org_id")
     private Integer m_orgId;
 
+    @JsonProperty("org_anon")
+    private boolean m_orgAnon;
+
     public int getChannelId() {
         return m_channelId;
     }
@@ -58,5 +61,9 @@ public class ChannelContext {
 
     public Integer getOrgId() {
         return m_orgId;
+    }
+
+    public boolean isOrgAnon() {
+        return m_orgAnon;
     }
 }

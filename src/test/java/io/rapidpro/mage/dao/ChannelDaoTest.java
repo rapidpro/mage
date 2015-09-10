@@ -30,6 +30,7 @@ public class ChannelDaoTest extends BaseServicesTest {
         assertThat(nexmo.get(0).getChannelType(), is(ChannelType.NEXMO));
         assertThat(nexmo.get(0).getChannelConfig(), nullValue());
         assertThat(nexmo.get(0).getOrgId(), is(-11));
+        assertThat(nexmo.get(0).isOrgAnon(), is(false));
 
         List<ChannelContext> twitter = m_dao.getChannelsByType(ChannelType.TWITTER);
         assertThat(twitter, hasSize(2));

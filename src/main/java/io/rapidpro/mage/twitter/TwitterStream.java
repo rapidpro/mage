@@ -137,7 +137,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         IncomingContext context = new IncomingContext(m_channel.getChannelId(), null, ChannelType.TWITTER, m_channel.getOrgId(), null);
         MessageService service = m_manager.getServices().getMessageService();
         ContactUrn from = new ContactUrn(ContactUrn.Scheme.TWITTER, message.getSenderScreenName());
-        String name = message.getSenderScreenName();
+        String name = m_channel.isOrgAnon() ? null : message.getSender().getName();
 
         int savedId = service.createIncoming(context, from, message.getText(), message.getCreatedAt(), String.valueOf(message.getId()), name);
 
@@ -153,8 +153,10 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     protected void handleFollow(User follower) {
         // ensure contact exists for this new follower
         ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
+        String name = m_channel.isOrgAnon() ? null : follower.getName();
+
         ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
-                urn, getChannel().getChannelId(), follower.getScreenName());
+                urn, getChannel().getChannelId(), name);
 
         if (contact.isNewContact()) {
             log.info("New follower '" + follower.getScreenName() + "' on channel #" + m_channel.getChannelId() + " and saved as contact #" + contact.getContactId());
