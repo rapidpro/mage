@@ -5,10 +5,33 @@
     <groupId>io.rapidpro</groupId>
     <artifactId>mage</artifactId>
     <version>0.1.64-SNAPSHOT</version>
-
     <packaging>jar</packaging>
+
     <name>Message Mage</name>
     <description>Simple and fast Java based server for receiving messages</description>
+    <url>https://rapidpro.io</url>
+
+    <licenses>
+        <license>
+            <name>GNU Affero General Public License</name>
+            <url>http://www.gnu.org/licenses/agpl.txt</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Rowan Seymour</name>
+            <email>rowan@nyaruka.com</email>
+            <organization>Nyaruka</organization>
+            <organizationUrl>http://nyaruka.com</organizationUrl>
+        </developer>
+        <developer>
+            <name>Nic Pottier</name>
+            <email>nic@nyaruka.com</email>
+            <organization>Nyaruka</organization>
+            <organizationUrl>http://nyaruka.com</organizationUrl>
+        </developer>
+    </developers>
 
     <properties>
         <dropwizard.version>0.8.0</dropwizard.version>
@@ -31,17 +54,12 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
-    <organization>
-        <name>Nyaruka</name>
-        <url>http://nyaruka.com</url>
-    </organization>
-
     <scm>
         <connection>scm:git:git@github.com:rapidpro/mage.git</connection>
         <developerConnection>scm:git:git@github.com:rapidpro/mage.git</developerConnection>
-        <url>scm:git:git@github.com:rapidpro/mage.git</url>
-      <tag>HEAD</tag>
-  </scm>
+        <url>git@github.com:rapidpro/mage.git</url>
+        <tag>HEAD</tag>
+    </scm>
 
     <dependencies>
         <!-- dropwizard -->
