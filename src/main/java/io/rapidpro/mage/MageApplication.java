@@ -24,7 +24,6 @@ import io.rapidpro.mage.task.SentryTestTask;
 import io.rapidpro.mage.task.TwitterMasterTask;
 import io.rapidpro.mage.temba.TembaManager;
 import io.rapidpro.mage.twitter.TwitterManager;
-import io.rapidpro.mage.util.AnalyticsUtils;
 import io.rapidpro.mage.util.JsonUtils;
 import io.rapidpro.mage.util.MageUtils;
 import com.tradier.raven.logging.RavenAppenderFactory;
@@ -95,10 +94,6 @@ public class MageApplication extends Application<MageConfiguration> {
 
         // use explicit annotations for all JSON serialization
         JsonUtils.disableMapperAutoDetection(environment.getObjectMapper());
-
-        if (StringUtils.isNotEmpty(monitoringCfg.getSegmentioWriteKey())) {
-            AnalyticsUtils.initialize(serverName, monitoringCfg.getSegmentioWriteKey());
-        }
 
         if (StringUtils.isNotEmpty(monitoringCfg.getSentryDsn())) {
             initializeRaven(serverName, appVersion, monitoringCfg.getSentryDsn());

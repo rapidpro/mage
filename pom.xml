@@ -39,8 +39,6 @@
         <postgresql.version>9.3-1101-jdbc41</postgresql.version>
         <jedis.version>2.7.0</jedis.version>
 
-        <segmentio.version>1.0.7</segmentio.version>
-
         <twilio.version>3.4.5</twilio.version>
         <twitter4j.version>4.0.3</twitter4j.version>
         <twitterhbc.version>2.2.0</twitterhbc.version>
@@ -100,11 +98,6 @@
             <version>1.0.0</version>
         </dependency>
         <!-- analytics and logging -->
-        <dependency>
-            <groupId>com.github.segmentio</groupId>
-            <artifactId>analytics</artifactId>
-            <version>${segmentio.version}</version>
-        </dependency>
         <dependency>
             <groupId>com.librato.metrics</groupId>
             <artifactId>metrics-librato</artifactId>

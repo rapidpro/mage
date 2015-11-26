@@ -13,7 +13,6 @@ import io.rapidpro.mage.dao.MessageDao;
 import io.rapidpro.mage.process.MessageUpdate;
 import io.rapidpro.mage.temba.TembaManager;
 import io.rapidpro.mage.temba.TembaRequest;
-import io.rapidpro.mage.util.AnalyticsUtils;
 import io.rapidpro.mage.util.JsonUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -145,8 +144,6 @@ public class MessageService extends BaseService<MessageDao> {
                 externalId,
                 MESSAGE_NORMAL_PRIORITY
         );
-
-        AnalyticsUtils.track("nyaruka.sms_incoming_" + context.getChannelType().toString().toLowerCase());
 
         // queues up a Temba API call which will both handle this message and trigger a webhook events
         requestMessageHandling(messageId, contact.isNewContact());
