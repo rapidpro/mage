@@ -8,7 +8,7 @@
     <packaging>jar</packaging>
 
     <name>Message Mage</name>
-    <description>Simple and fast Java based server for receiving messages</description>
+    <description>Simple and fast Java based server for receiving messages.</description>
     <url>https://rapidpro.io</url>
 
     <licenses>
