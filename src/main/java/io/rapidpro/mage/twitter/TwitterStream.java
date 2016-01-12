@@ -43,7 +43,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     protected static final String CONFIG_TOKEN = "oauth_token";
     protected static final String CONFIG_TOKEN_SECRET = "oauth_token_secret";
 
-    protected static final long BACKFILL_MAX_AGE = 60 * 60 * 1000; // 1 hour (in millis)
+    protected static final long BACKFILL_MAX_AGE = 24 * 60 * 60 * 1000; // 1 day (in millis)
 
     private final TwitterManager m_manager;
     private final ChannelContext m_channel;
