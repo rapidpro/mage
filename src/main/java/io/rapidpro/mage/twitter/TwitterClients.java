@@ -102,9 +102,9 @@ public class TwitterClients {
 
         /**
          * Performs a rate-limited operation. If Twitter API returns a rate limit error, method waits before retrying
-         * the operation. Method is static synchronized, synchronizing calls across all client instances.
+         * the operation.
          */
-        protected static synchronized <T> T rateLimited(RateLimitedOperation<T> operation) throws TwitterException {
+        protected synchronized <T> T rateLimited(RateLimitedOperation<T> operation) throws TwitterException {
             int attempt = 1;
             while (true) {
                 try {

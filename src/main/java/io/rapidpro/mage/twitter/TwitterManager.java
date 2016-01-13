@@ -42,7 +42,6 @@ public class TwitterManager implements Managed {
     private ScheduledExecutorService m_masterMgmt;
     private boolean m_master = false;
     private List<TwitterStream> m_streams = new Vector<>();
-    private ExecutorService m_backfillExecutor;
 
     public TwitterManager(ServiceManager services, Cache cache, TembaManager temba, String apiKey, String apiSecret) {
         this.m_services = services;
@@ -56,9 +55,6 @@ public class TwitterManager implements Managed {
     public void start() throws Exception {
         log.info("Starting Twitter manager node...");
 
-        ThreadFactory backfillFactory = new ThreadFactoryBuilder().setNameFormat("backfill-%d").build();
-        m_backfillExecutor = Executors.newSingleThreadExecutor(backfillFactory);
-
         ThreadFactory masterFactory = new ThreadFactoryBuilder().setNameFormat("mastermgmt-%d").build();
         m_masterMgmt = Executors.newSingleThreadScheduledExecutor(masterFactory);
         m_masterMgmt.scheduleWithFixedDelay(new MasterManagementTask(), 0, 5, TimeUnit.SECONDS);
@@ -67,8 +63,6 @@ public class TwitterManager implements Managed {
     @Override
     public void stop() throws Exception {
         log.info("Stopping Twitter manager node...");
-
-        m_backfillExecutor.shutdown();
 
         m_masterMgmt.shutdown();
 
@@ -145,7 +139,7 @@ public class TwitterManager implements Managed {
      * @param channel the channel context
      * @return the stream or null
      */
-    protected TwitterStream getNodeStreamByChannel(ChannelContext channel) {
+    public TwitterStream getNodeStreamByChannel(ChannelContext channel) {
         for (TwitterStream stream : m_streams) {
             if (channel.getChannelUuid().equals(stream.getChannel().getChannelUuid())) {
                 return stream;
@@ -293,10 +287,6 @@ public class TwitterManager implements Managed {
         m_streams.remove(stream);
 
         log.info("Removed Twitter stream for handle " + channel.getChannelAddress() + " (" + stream.getHandleId() + ") on channel #" + channel.getChannelId());
-    }
-
-    public void requestBackfill(TwitterStream.BackfillFetcherTask task) {
-        m_backfillExecutor.execute(task);
     }
 
     /**

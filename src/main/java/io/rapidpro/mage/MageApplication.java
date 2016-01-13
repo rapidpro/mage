@@ -21,6 +21,7 @@ import io.rapidpro.mage.resource.VumiResource;
 import io.rapidpro.mage.service.ServiceManager;
 import io.rapidpro.mage.health.HealthCheckServlet;
 import io.rapidpro.mage.task.SentryTestTask;
+import io.rapidpro.mage.task.TwitterBackfillTask;
 import io.rapidpro.mage.task.TwitterMasterTask;
 import io.rapidpro.mage.temba.TembaManager;
 import io.rapidpro.mage.twitter.TwitterManager;
@@ -117,6 +118,7 @@ public class MageApplication extends Application<MageConfiguration> {
 
         // register admin tasks
         environment.admin().addTask(new TwitterMasterTask(twitter));
+        environment.admin().addTask(new TwitterBackfillTask(twitter));
         environment.admin().addTask(new SentryTestTask());
 
         // register resources

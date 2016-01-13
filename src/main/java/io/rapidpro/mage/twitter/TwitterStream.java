@@ -2,6 +2,7 @@ package io.rapidpro.mage.twitter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.rapidpro.mage.core.ChannelConfigException;
 import io.rapidpro.mage.core.ChannelContext;
 import io.rapidpro.mage.core.ChannelType;
@@ -25,9 +26,13 @@ import twitter4j.UserStreamAdapter;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * Provides connection to a single Twitter account using both the Streaming API for real time message fetching, and the
@@ -43,8 +48,6 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     protected static final String CONFIG_TOKEN = "oauth_token";
     protected static final String CONFIG_TOKEN_SECRET = "oauth_token_secret";
 
-    protected static final long BACKFILL_MAX_AGE = 24 * 60 * 60 * 1000; // 1 day (in millis)
-
     private final TwitterManager m_manager;
     private final ChannelContext m_channel;
     private long m_handleId;
@@ -53,6 +56,8 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
     private TwitterClients.StreamingClient m_streamingClient;
     private boolean m_backfilled = false;
     private boolean m_streaming = false;
+
+    private ExecutorService m_backfillExecutor;
 
     public TwitterStream(TwitterManager manager, ChannelContext channel, String apiKey, String apiSecret) throws ChannelConfigException {
         this.m_manager = manager;
@@ -64,7 +69,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
         }
 
         JsonNode handleId = config.get(CONFIG_HANDLE_ID);
-        m_handleId = handleId != null ? handleId.longValue() : 0l;
+        m_handleId = handleId != null ? handleId.longValue() : 0L;
 
         JsonNode token = config.get(CONFIG_TOKEN);
         JsonNode secret = config.get(CONFIG_TOKEN_SECRET);
@@ -78,6 +83,9 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
         m_restClient = TwitterClients.getRestClient(apiKey, apiSecret, token.textValue(), secret.textValue(), production);
         m_streamingClient = TwitterClients.getStreamingClient(apiKey, apiSecret, token.textValue(), secret.textValue(), production);
+
+        ThreadFactory backfillFactory = new ThreadFactoryBuilder().setNameFormat("backfill-%d").build();
+        m_backfillExecutor = Executors.newSingleThreadExecutor(backfillFactory);
     }
 
     /**
@@ -98,7 +106,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             onBackfillComplete(false);
         }
         else {
-            m_manager.requestBackfill(new BackfillFetcherTask());
+            m_backfillExecutor.execute(new BackfillFetcherTask(1, true)); // back-fill over last hour
         }
 
         String timestamp = String.valueOf(System.currentTimeMillis());
@@ -110,7 +118,17 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     @Override
     public void stop() throws Exception {
+        m_backfillExecutor.shutdown();
+
         m_streamingClient.stop();
+    }
+
+    /**
+     * Request back-filling
+     * @param hours the number of hours
+     */
+    public void requestBackfill(int hours) {
+        m_backfillExecutor.execute(new BackfillFetcherTask(hours, false));
     }
 
     /**
@@ -259,6 +277,14 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     protected class BackfillFetcherTask implements Runnable {
 
+        protected int m_hours;
+        protected boolean m_isStarting;
+
+        public BackfillFetcherTask(int hours, boolean isStarting) {
+            this.m_hours = hours;
+            this.m_isStarting = isStarting;
+        }
+
         /**
          * @see Runnable#run()
          */
@@ -269,7 +295,9 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             try {
                 backfillMessages();
 
-                onBackfillComplete(true);
+                if (m_isStarting) {
+                    onBackfillComplete(true);
+                }
             }
             catch (TwitterException ex) {
                 throw new RuntimeException(ex);
@@ -280,15 +308,11 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
          * Back-fills missed direct messages
          */
         protected void backfillMessages() throws TwitterException {
-            Long lastMessageId = getLastTwitterMessageId();
             Instant now = Instant.now();
+            Instant minMsgTime = now.minus(m_hours, ChronoUnit.HOURS);
 
             int page = 1;
             Paging paging = new Paging(page, 200);
-            if (lastMessageId != null) {
-                paging.setSinceId(lastMessageId);
-            }
-
             List<DirectMessage> all_messages = new ArrayList<>();
 
             // fetch all messages - Twitter will give us them in reverse chronological order
@@ -303,7 +327,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
 
                 for (DirectMessage message : messages) {
                     // check if message is too old (thus all subsequent messages are too old)
-                    if (Duration.between(message.getCreatedAt().toInstant(), now).toMillis() > BACKFILL_MAX_AGE) {
+                    if (message.getCreatedAt().toInstant().isBefore(minMsgTime)) {
                         break outer;
                     }
 
@@ -326,17 +350,6 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
             for (DirectMessage message : all_messages) {
                 handleMessageReceived(message, false);
             }
-        }
-
-        protected Long getLastTwitterMessageId() {
-            String externalId = m_manager.getServices().getMessageService().getLastExternalId(m_channel.getChannelId(), Direction.INCOMING);
-            if (externalId != null) {
-                try {
-                    return Long.parseLong(externalId);
-                }
-                catch (NumberFormatException ex) {}
-            }
-            return null;
         }
     }
 
