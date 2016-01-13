@@ -1,5 +1,6 @@
 package io.rapidpro.mage.task;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import io.dropwizard.servlets.tasks.Task;
 import io.rapidpro.mage.core.ChannelContext;
@@ -27,8 +28,9 @@ public class TwitterBackfillTask extends Task {
      */
     @Override
     public void execute(ImmutableMultimap<String, String> params, PrintWriter output) throws Exception {
-        String channelUuid = params.get("channel").asList().get(0);
-        String hoursStr = params.get("hours").asList().get(0);
+        String channelUuid = getParamValue(params, "channel");
+        String hoursStr = getParamValue(params, "hours");
+
         int hours = StringUtils.isNotEmpty(hoursStr) ? Integer.parseInt(hoursStr) : 0;
 
         if (StringUtils.isEmpty(channelUuid) || hours == 0) {
@@ -36,7 +38,7 @@ public class TwitterBackfillTask extends Task {
             return;
         }
 
-        output.println("Backfill task initiated for channel " + channelUuid + " for previous " + hours + hours);
+        output.println("Backfill task initiated for channel " + channelUuid + " for previous " + hours + " hours...");
 
         ChannelContext channel = m_twitter.getServices().getChannelService().getChannelByUuid(channelUuid);
         if (channel != null) {
@@ -52,5 +54,10 @@ public class TwitterBackfillTask extends Task {
         } else {
             output.println("No channel found with UUID " + channelUuid);
         }
+    }
+
+    protected String getParamValue(ImmutableMultimap<String, String> params, String name) {
+        ImmutableList<String> vals = params.get(name).asList();
+        return vals.size() > 0 ? vals.get(0) : null;
     }
 }
