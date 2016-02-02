@@ -16,7 +16,7 @@ public interface ContactDao {
             "FROM " + Table.CONTACT_URN + " cu " +
             "LEFT OUTER JOIN " + Table.CONTACT + " c ON c.id = cu.contact_id " +
             "LEFT OUTER JOIN " + Table.CHANNEL + " r ON r.id = cu.channel_id " +
-            "WHERE cu.org_id = :orgId AND LOWER(cu.urn) = :urn"
+            "WHERE cu.org_id = :orgId AND cu.urn = :urn"
     )
     ContactContext getContactContextByOrgAndUrn(@Bind("orgId") int orgId, @Bind("urn") String urn);
 
