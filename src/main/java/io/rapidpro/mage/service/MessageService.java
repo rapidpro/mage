@@ -115,7 +115,7 @@ public class MessageService extends BaseService<MessageDao> {
      */
     public int createIncoming(IncomingContext context, ContactUrn urn, String text, Date createdOn, String externalId, String name) {
         // try to normalize our URN using our channel country
-        urn.normalize(context.getChannelCountry());
+        urn = urn.normalize(context.getChannelCountry());
 
         ContactContext contact = getManager().getContactService().getOrCreateContact(context.getOrgId(), urn, context.getChannelId(), name);
 
