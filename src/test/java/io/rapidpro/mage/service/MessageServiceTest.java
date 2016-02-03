@@ -153,7 +153,23 @@ public class MessageServiceTest extends BaseServicesTest {
         assertThat(message3Id, is(message2Id));
 
         // check for no queued handle message request
-        assertThat(getCache().listLength(MageConstants.CacheKey.TEMBA_REQUEST_QUEUE), is(0l));
+        assertThat(getCache().listLength(MageConstants.CacheKey.TEMBA_REQUEST_QUEUE), is(0L));
+
+        // create Twitter message
+        int messageId = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TWITTER, "BillyBob"), "Tweet", createdOn, "1234567890", "Billy Bob");
+        Map<String, Object> message4 = fetchSingleById(Table.MESSAGE, messageId);
+        assertThat(message4, hasEntry("text", "Tweet"));
+        assertThat(message4, hasEntry("direction", "I"));
+        assertThat(message4, hasEntry("created_on", createdOn));
+        assertThat(message4, hasEntry("external_id", "1234567890"));
+
+        Map<String, Object> contact = fetchSingleById(Table.CONTACT, (Integer) message4.get("contact_id"));
+        assertThat(contact, hasEntry("org_id", -11));
+        assertThat(contact, hasEntry("name", "Billy Bob"));
+
+        contactURN = fetchSingleById(Table.CONTACT_URN, (Integer) message4.get("contact_urn_id"));
+        assertThat(contactURN, hasEntry("urn", "twitter:billybob"));
+        assertThat(contactURN, hasEntry("channel_id", -41));
     }
 
     /**

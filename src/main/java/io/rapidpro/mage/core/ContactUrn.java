@@ -10,7 +10,7 @@ import com.google.i18n.phonenumbers.Phonenumber;
  */
 public class ContactUrn {
 
-    public static enum Scheme {
+    public enum Scheme {
         TEL(50),
         TWITTER(90);
 
@@ -47,16 +47,51 @@ public class ContactUrn {
         return m_path;
     }
 
-    public void normalize(String country) {
+    /**
+     * Returns a normalized version of this URN
+     * @param country the country to use for number normalization
+     * @return the normalized URN
+     */
+    public ContactUrn normalize(String country) {
+        String normalizedPath = null;
+
         if (m_scheme == Scheme.TEL) {
-            m_path = normalizeNumber(m_path, country);
+            normalizedPath = normalizeNumber(m_path, country);
+        } else if (m_scheme == Scheme.TWITTER) {
+            normalizedPath = m_path.trim().toLowerCase();
+
+            // remove possible @ prefix
+            if (normalizedPath.startsWith("@")) {
+                normalizedPath = normalizedPath.substring(1);
+            }
         }
+
+        return new ContactUrn(m_scheme, normalizedPath);
     }
 
     @JsonValue
     @Override
     public String toString() {
         return m_scheme + ":" + m_path;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        ContactUrn that = (ContactUrn) o;
+
+        if (m_scheme != that.m_scheme) return false;
+        return m_path.equals(that.m_path);
+
+    }
+
+    @Override
+    public int hashCode() {
+        int result = m_scheme.hashCode();
+        result = 31 * result + m_path.hashCode();
+        return result;
     }
 
     /**

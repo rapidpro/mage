@@ -15,7 +15,7 @@ public class ContactUrnTest extends BaseMageTest {
      * @see io.rapidpro.mage.core.ContactUrn#normalizeNumber(String, String)
      */
     @Test
-    public void normalizeNumber_shouldCorrectlyNormalizeNumber() {
+    public void normalizeNumber() {
         assertThat(ContactUrn.normalizeNumber("0788383383", "RW"), is("+250788383383"));
         assertThat(ContactUrn.normalizeNumber("12345", "RW"), is("12345"));
         assertThat(ContactUrn.normalizeNumber("+250788383383", "KE"), is("+250788383383"));
@@ -27,6 +27,15 @@ public class ContactUrnTest extends BaseMageTest {
         assertThat(ContactUrn.normalizeNumber("0788383383", "ZZ"), is("0788383383"));
         assertThat(ContactUrn.normalizeNumber("(917) 992-5253", "US"), is("+19179925253"));
         assertThat(ContactUrn.normalizeNumber("MTN", "RW"), is("mtn"));
+    }
+
+    /**
+     * @see io.rapidpro.mage.core.ContactUrn#normalize(String)
+     */
+    @Test
+    public void normalize() {
+        assertThat(new ContactUrn(ContactUrn.Scheme.TEL, "0788383383").normalize("RW"), is(new ContactUrn(ContactUrn.Scheme.TEL, "+250788383383")));
+        assertThat(new ContactUrn(ContactUrn.Scheme.TWITTER, " @BillyBob ").normalize(null), is(new ContactUrn(ContactUrn.Scheme.TWITTER, "billybob")));
     }
 
     /**
