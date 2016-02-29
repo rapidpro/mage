@@ -170,7 +170,7 @@ public class TwitterStream extends UserStreamAdapter implements Managed {
      */
     protected void handleFollow(User follower) {
         // ensure contact exists for this new follower
-        ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName());
+        ContactUrn urn = new ContactUrn(ContactUrn.Scheme.TWITTER, follower.getScreenName()).normalize(null);
         String name = m_channel.isOrgAnon() ? null : follower.getName();
 
         ContactContext contact = m_manager.getServices().getContactService().getOrCreateContact(getChannel().getOrgId(),
