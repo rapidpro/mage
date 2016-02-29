@@ -86,6 +86,10 @@ public class TwitterStreamTest extends BaseTwitterTest {
         assertThat(contacts.get(0), hasEntry("name", "Nicolas"));
         assertThat(contacts.get(1), hasEntry("name", "Norbert Kwizera"));
 
+        // urns are always lowercase
+        List<Map<String, Object>> urns = queryRows("SELECT * FROM contacts_contacturn WHERE org_id = -11 ORDER BY created_on");
+        assertthat(urns.get(0), hasEntry("path", "norkans"));
+
         // another user follows channel user
         stream.onFollow(createTwitterUser("twitter/user_2.json"), createTwitterUser("twitter/user_1.json"));
 
