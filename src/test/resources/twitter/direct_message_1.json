@@ -81,7 +81,7 @@
         "profile_text_color": "666666",
         "profile_use_background_image": true,
         "protected": false,
-        "screen_name": "noRKans",
+        "screen_name": "noRKAns",
         "show_all_inline_media": true,
         "statuses_count": 2608,
         "time_zone": "Pacific Time (US & Canada)",
@@ -90,6 +90,6 @@
         "verified": false
     },
     "sender_id": 38895958,
-    "sender_screen_name": "norkans",
+    "sender_screen_name": "noRKAns ",
     "text": "booyakasha"
 }
