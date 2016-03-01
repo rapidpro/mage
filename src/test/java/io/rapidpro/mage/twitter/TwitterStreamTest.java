@@ -91,6 +91,7 @@ public class TwitterStreamTest extends BaseTwitterTest {
         assertThat(urns, hasSize(1));
         assertThat(urns.get(0), hasEntry("path", "norkans"));
 
+
         // another user follows channel user
         stream.onFollow(createTwitterUser("twitter/user_2.json"), createTwitterUser("twitter/user_1.json"));
 
@@ -123,6 +124,10 @@ public class TwitterStreamTest extends BaseTwitterTest {
         contacts = queryRows("SELECT * FROM contacts_contact WHERE org_id = -11 ORDER BY created_on");
         assertThat(contacts, hasSize(5));
         assertThat(contacts.get(4), hasEntry("name", null));
+
+        urns = queryRows("SELECT * FROM contacts_contacturn WHERE org_id = -11 AND scheme = 'twitter' ORDER BY id DESC");
+        assertThat(urns, hasSize(4));
+        assertThat(urns.get(0), hasEntry("path", "joeflowz"));
 
         stream.stop();
     }
