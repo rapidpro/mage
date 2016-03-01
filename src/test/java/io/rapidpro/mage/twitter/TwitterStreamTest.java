@@ -91,7 +91,6 @@ public class TwitterStreamTest extends BaseTwitterTest {
         assertThat(urns, hasSize(1));
         assertThat(urns.get(0), hasEntry("path", "norkans"));
 
-
         // another user follows channel user
         stream.onFollow(createTwitterUser("twitter/user_2.json"), createTwitterUser("twitter/user_1.json"));
 
