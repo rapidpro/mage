@@ -124,6 +124,10 @@ public class TwitterStreamTest extends BaseTwitterTest {
         assertThat(contacts, hasSize(5));
         assertThat(contacts.get(4), hasEntry("name", null));
 
+        urns = queryRows("SELECT * FROM contacts_contacturn WHERE org_id = -11 AND scheme = 'twitter' ORDER BY id DESC");
+        assertThat(urns, hasSize(4));
+        assertThat(urns.get(0), hasEntry("path", "joeflowz"));
+
         stream.stop();
     }
 }
