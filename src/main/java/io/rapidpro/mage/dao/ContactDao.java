@@ -21,7 +21,7 @@ public interface ContactDao {
     ContactContext getContactContextByOrgAndUrn(@Bind("orgId") int orgId, @Bind("urn") String urn);
 
     @SqlUpdate(
-            "INSERT INTO " + Table.CONTACT + " (org_id, name, is_active, created_by_id, created_on, modified_by_id, modified_on, is_test, is_blocked, is_failed, uuid) " +
+            "INSERT INTO " + Table.CONTACT + " (org_id, name, is_active, created_by_id, created_on, modified_by_id, modified_on, is_test, is_blocked, is_stopped, uuid) " +
             "VALUES(:orgId, :name, TRUE, :userId, NOW(), :userId, NOW(), FALSE, FALSE, FALSE, :uuid)"
     )
     @GetGeneratedKeys

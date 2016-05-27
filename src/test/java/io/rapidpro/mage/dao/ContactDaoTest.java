@@ -53,7 +53,7 @@ public class ContactDaoTest extends BaseServicesTest {
         assertThat(contact, hasEntry("is_active", true));
         assertThat(contact, hasEntry("is_test", false));
         assertThat(contact, hasEntry("is_blocked", false));
-        assertThat(contact, hasEntry("is_failed", false));
+        assertThat(contact, hasEntry("is_stopped", false));
         assertThat(contact, hasEntry("uuid", "xyz"));
     }
 
