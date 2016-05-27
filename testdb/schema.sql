@@ -112,7 +112,7 @@ CREATE TABLE contacts_contact (
     is_test boolean NOT NULL,
     language character varying(3),
     uuid character varying(36) NOT NULL,
-    is_failed boolean NOT NULL
+    is_stopped boolean NOT NULL
 );
 
 
@@ -186,7 +186,7 @@ BEGIN
       PERFORM contact_toggle_system_group(NEW, 'B', true);
     ELSE
       PERFORM contact_toggle_system_group(NEW, 'A', true);
-      IF NEW.is_failed THEN
+      IF NEW.is_stopped THEN
           PERFORM contact_toggle_system_group(NEW, 'F', true);
       END IF;
     END IF;
@@ -210,18 +210,18 @@ BEGIN
     IF OLD.is_blocked AND NOT NEW.is_blocked THEN
       PERFORM contact_toggle_system_group(NEW, 'A', true);
       PERFORM contact_toggle_system_group(NEW, 'B', false);
-      IF NEW.is_failed THEN
+      IF NEW.is_stopped THEN
         PERFORM contact_toggle_system_group(NEW, 'F', true);
       END IF;
     END IF;
 
     -- is being failed
-    IF NOT OLD.is_failed AND NEW.is_failed THEN
+    IF NOT OLD.is_stopped AND NEW.is_stopped THEN
       PERFORM contact_toggle_system_group(NEW, 'F', true);
     END IF;
 
     -- is being unfailed
-    IF OLD.is_failed AND NOT NEW.is_failed THEN
+    IF OLD.is_stopped AND NOT NEW.is_stopped THEN
       PERFORM contact_toggle_system_group(NEW, 'F', false);
     END IF;
 
@@ -239,7 +239,7 @@ BEGIN
       ELSE
         PERFORM contact_toggle_system_group(NEW, 'B', false);
       END IF;
-      IF NEW.is_failed THEN
+      IF NEW.is_stopped THEN
         PERFORM contact_toggle_system_group(NEW, 'F', false);
       END IF;
     END IF;
