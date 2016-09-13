@@ -40,7 +40,7 @@
         <jedis.version>2.7.0</jedis.version>
 
         <twilio.version>3.4.5</twilio.version>
-        <twitter4j.version>4.0.5-SNAPSHOT</twitter4j.version>
+        <twitter4j.version>4.0.5</twitter4j.version>
         <twitterhbc.version>2.2.0</twitterhbc.version>
 
         <junit.version>4.12</junit.version>
