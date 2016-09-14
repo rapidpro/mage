@@ -51,12 +51,12 @@ public class MessageUpdateProcessTest extends BaseServicesTest {
         Map<String, Object> message1 = fetchSingleById(Table.MESSAGE, -81);
         assertThat(message1.get("status"), is("S"));
         assertThat(message1.get("sent_on"), is(date1));
-        assertThat(message1.get("delivered_on"), nullValue());
+        assertThat(message1.get("modified_on"), nullValue());
 
         Map<String, Object> message2 = fetchSingleById(Table.MESSAGE, -82);
         assertThat(message2.get("status"), is("D"));
         assertThat(message2.get("sent_on"), is(TestUtils.date("2014-01-22 23:26:02.181")));
-        assertThat(message2.get("delivered_on"), is(date2));
+        assertThat(message2.get("modified_on"), is(date2));
 
         Map<String, Object> message3 = fetchSingleById(Table.MESSAGE, -83);
         assertThat(message3.get("status"), is("F"));

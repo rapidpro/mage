@@ -130,13 +130,13 @@ public class MessageDaoTest extends BaseServicesTest {
 
         Map<String, Object> message1 = fetchSingleById(Table.MESSAGE, -81);
         assertThat(message1, hasEntry("status", "D"));
-        assertThat(message1, hasEntry("delivered_on", d1));
+        assertThat(message1, hasEntry("modified_on", d1));
         Map<String, Object> message2 = fetchSingleById(Table.MESSAGE, -82);
         assertThat(message2, hasEntry("status", "D"));
-        assertThat(message2, hasEntry("delivered_on", d2));
+        assertThat(message2, hasEntry("modified_on", d2));
         Map<String, Object> message3 = fetchSingleById(Table.MESSAGE, -83);
         assertThat(message3, hasEntry("status", "D"));
-        assertThat(message3, hasEntry("delivered_on", d3));
+        assertThat(message3, hasEntry("modified_on", d3));
     }
 
     /**
