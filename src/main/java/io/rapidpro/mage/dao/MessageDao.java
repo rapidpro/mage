@@ -107,7 +107,7 @@ public interface MessageDao {
      * @param messageIds the message ids
      * @param dates the delivered on dates
      */
-    @SqlBatch("UPDATE " + Table.MESSAGE + " SET status = 'D', delivered_on = :deliveredOn WHERE id = :messageId")
+    @SqlBatch("UPDATE " + Table.MESSAGE + " SET status = 'D', modified_on = :deliveredOn WHERE id = :messageId")
     void updateBatchToDelivered(@Bind("messageId") Iterable<Integer> messageIds, @Bind("deliveredOn") Iterable<Date> dates);
 
     /**

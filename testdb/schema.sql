@@ -83,7 +83,11 @@ CREATE FUNCTION contact_check_update() RETURNS trigger
     AS $$
 BEGIN
   IF OLD.is_test != NEW.is_test THEN
-    RAISE EXCEPTION 'is_test cannot be changed';
+    RAISE EXCEPTION 'Contact.is_test cannot be changed';
+  END IF;
+
+  IF NEW.is_test AND (NEW.is_blocked OR NEW.is_stopped) THEN
+    RAISE EXCEPTION 'Test contacts cannot opt out or be blocked';
   END IF;
 
   RETURN NEW;
@@ -173,117 +177,117 @@ CREATE FUNCTION exec(text) RETURNS text
 
 
 --
--- Name: update_contact_system_groups(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: msgs_broadcast; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
-CREATE FUNCTION update_contact_system_groups() RETURNS trigger
+CREATE TABLE msgs_broadcast (
+    id integer NOT NULL,
+    is_active boolean NOT NULL,
+    created_by_id integer NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    modified_by_id integer NOT NULL,
+    modified_on timestamp with time zone NOT NULL,
+    text text NOT NULL,
+    status character varying(1) NOT NULL,
+    org_id integer NOT NULL,
+    schedule_id integer,
+    parent_id integer,
+    language_dict text,
+    recipient_count integer,
+    channel_id integer,
+    purged boolean DEFAULT false NOT NULL
+);
+
+
+--
+-- Name: temba_broadcast_determine_system_label(msgs_broadcast); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_broadcast_determine_system_label(_broadcast msgs_broadcast) RETURNS character
     LANGUAGE plpgsql
     AS $$
 BEGIN
-  -- new contact added
-  IF TG_OP = 'INSERT' AND NEW.is_active AND NOT NEW.is_test THEN
-    IF NEW.is_blocked THEN
-      PERFORM contact_toggle_system_group(NEW, 'B', true);
-    ELSE
-      PERFORM contact_toggle_system_group(NEW, 'A', true);
-      IF NEW.is_stopped THEN
-          PERFORM contact_toggle_system_group(NEW, 'F', true);
-      END IF;
-    END IF;
+  IF _broadcast.is_active AND _broadcast.schedule_id IS NOT NULL THEN
+    RETURN 'E';
   END IF;
 
-  -- existing contact updated
-  IF TG_OP = 'UPDATE' AND NOT NEW.is_test THEN
-    -- do nothing for inactive contacts
-    IF NOT OLD.is_active AND NOT NEW.is_active THEN
-      RETURN NULL;
-    END IF;
-
-    -- is being blocked
-    IF NOT OLD.is_blocked AND NEW.is_blocked THEN
-      PERFORM contact_toggle_system_group(NEW, 'A', false);
-      PERFORM contact_toggle_system_group(NEW, 'B', true);
-      PERFORM contact_toggle_system_group(NEW, 'F', false);
-    END IF;
-
-    -- is being unblocked
-    IF OLD.is_blocked AND NOT NEW.is_blocked THEN
-      PERFORM contact_toggle_system_group(NEW, 'A', true);
-      PERFORM contact_toggle_system_group(NEW, 'B', false);
-      IF NEW.is_stopped THEN
-        PERFORM contact_toggle_system_group(NEW, 'F', true);
-      END IF;
-    END IF;
-
-    -- is being failed
-    IF NOT OLD.is_stopped AND NEW.is_stopped THEN
-      PERFORM contact_toggle_system_group(NEW, 'F', true);
-    END IF;
-
-    -- is being unfailed
-    IF OLD.is_stopped AND NOT NEW.is_stopped THEN
-      PERFORM contact_toggle_system_group(NEW, 'F', false);
-    END IF;
-
-    -- is being released
-    IF OLD.is_active AND NOT NEW.is_active THEN
-      PERFORM contact_toggle_system_group(NEW, 'A', false);
-      PERFORM contact_toggle_system_group(NEW, 'B', false);
-      PERFORM contact_toggle_system_group(NEW, 'F', false);
-    END IF;
-
-    -- is being unreleased
-    IF NOT OLD.is_active AND NEW.is_active THEN
-      IF NOT NEW.is_blocked THEN
-        PERFORM contact_toggle_system_group(NEW, 'A', false);
-      ELSE
-        PERFORM contact_toggle_system_group(NEW, 'B', false);
-      END IF;
-      IF NEW.is_stopped THEN
-        PERFORM contact_toggle_system_group(NEW, 'F', false);
-      END IF;
-    END IF;
-
-  END IF;
-
-  RETURN NULL;
+  RETURN NULL; -- might not match any label
 END;
 $$;
 
 
 --
--- Name: update_group_count(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: temba_broadcast_on_change(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION update_group_count() RETURNS trigger
+CREATE FUNCTION temba_broadcast_on_change() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-  is_test BOOLEAN;
+  _is_test BOOLEAN;
+  _new_label_type CHAR(1);
+  _old_label_type CHAR(1);
 BEGIN
-  -- contact being added to group
+  -- new broadcast inserted
   IF TG_OP = 'INSERT' THEN
-    -- is this a test contact
-    SELECT contacts_contact.is_test INTO STRICT is_test FROM contacts_contact WHERE id = NEW.contact_id;
-
-    IF NOT is_test THEN
-      -- increment our group count
-      UPDATE contacts_contactgroup SET count = count + 1 WHERE id = NEW.contactgroup_id;
+    -- don't update anything for a test broadcast
+    IF NEW.recipient_count = 1 THEN
+      SELECT c.is_test INTO _is_test FROM contacts_contact c
+      INNER JOIN msgs_msg m ON m.contact_id = c.id AND m.broadcast_id = NEW.id;
+      IF _is_test = TRUE THEN
+        RETURN NULL;
+      END IF;
     END IF;
 
-  -- contact being removed from a group
+    _new_label_type := temba_broadcast_determine_system_label(NEW);
+    IF _new_label_type IS NOT NULL THEN
+      PERFORM temba_insert_system_label(NEW.org_id, _new_label_type, 1);
+    END IF;
+
+  -- existing broadcast updated
+  ELSIF TG_OP = 'UPDATE' THEN
+    _old_label_type := temba_broadcast_determine_system_label(OLD);
+    _new_label_type := temba_broadcast_determine_system_label(NEW);
+
+    IF _old_label_type IS DISTINCT FROM _new_label_type THEN
+      -- if this could be a test broadcast, check it and exit if so
+      IF NEW.recipient_count = 1 THEN
+        SELECT c.is_test INTO _is_test FROM contacts_contact c
+        INNER JOIN msgs_msg m ON m.contact_id = c.id AND m.broadcast_id = NEW.id;
+        IF _is_test = TRUE THEN
+          RETURN NULL;
+        END IF;
+      END IF;
+
+      IF _old_label_type IS NOT NULL THEN
+        PERFORM temba_insert_system_label(OLD.org_id, _old_label_type, -1);
+      END IF;
+      IF _new_label_type IS NOT NULL THEN
+        PERFORM temba_insert_system_label(NEW.org_id, _new_label_type, 1);
+      END IF;
+    END IF;
+
+  -- existing broadcast deleted
   ELSIF TG_OP = 'DELETE' THEN
-    -- is this a test contact
-    SELECT contacts_contact.is_test INTO STRICT is_test FROM contacts_contact WHERE id = OLD.contact_id;
-
-    IF NOT is_test THEN
-      -- decrement our group count
-      UPDATE contacts_contactgroup SET count = count - 1 WHERE id = OLD.contactgroup_id;
+    -- don't update anything for a test broadcast
+    IF OLD.recipient_count = 1 THEN
+      SELECT c.is_test INTO _is_test FROM contacts_contact c
+      INNER JOIN msgs_msg m ON m.contact_id = c.id AND m.broadcast_id = OLD.id;
+      IF _is_test = TRUE THEN
+        RETURN NULL;
+      END IF;
     END IF;
 
-  -- table being cleared, reset all counts
+    _old_label_type := temba_broadcast_determine_system_label(OLD);
+
+    IF _old_label_type IS NOT NULL THEN
+      PERFORM temba_insert_system_label(OLD.org_id, _old_label_type, 1);
+    END IF;
+
+  -- all broadcast deleted
   ELSIF TG_OP = 'TRUNCATE' THEN
-    UPDATE contacts_contactgroup SET count = 0;
+    PERFORM temba_reset_system_labels('{"E"}');
+
   END IF;
 
   RETURN NULL;
@@ -292,10 +296,354 @@ $$;
 
 
 --
--- Name: update_label_count(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: channels_channelevent; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
-CREATE FUNCTION update_label_count() RETURNS trigger
+CREATE TABLE channels_channelevent (
+    id integer NOT NULL,
+    event_type character varying(16) NOT NULL,
+    "time" timestamp with time zone NOT NULL,
+    duration integer NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    is_active boolean NOT NULL,
+    channel_id integer NOT NULL,
+    contact_id integer NOT NULL,
+    contact_urn_id integer,
+    org_id integer NOT NULL
+);
+
+
+--
+-- Name: temba_channelevent_is_call(channels_channelevent); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_channelevent_is_call(_event channels_channelevent) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RETURN _event.event_type IN ('mo_call', 'mo_miss', 'mt_call', 'mt_miss');
+END;
+$$;
+
+
+--
+-- Name: temba_channelevent_on_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_channelevent_on_change() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- new event inserted
+  IF TG_OP = 'INSERT' THEN
+    -- don't update anything for a non-call event or test call
+    IF NOT temba_channelevent_is_call(NEW) OR temba_contact_is_test(NEW.contact_id) THEN
+      RETURN NULL;
+    END IF;
+
+    IF NEW.is_active THEN
+      PERFORM temba_insert_system_label(NEW.org_id, 'C', 1);
+    END IF;
+
+  -- existing call updated
+  ELSIF TG_OP = 'UPDATE' THEN
+    -- don't update anything for a non-call event or test call
+    IF NOT temba_channelevent_is_call(NEW) OR temba_contact_is_test(NEW.contact_id) THEN
+      RETURN NULL;
+    END IF;
+
+    -- is being de-activated
+    IF OLD.is_active AND NOT NEW.is_active THEN
+      PERFORM temba_insert_system_label(NEW.org_id, 'C', -1);
+    -- is being re-activated
+    ELSIF NOT OLD.is_active AND NEW.is_active THEN
+      PERFORM temba_insert_system_label(NEW.org_id, 'C', 1);
+    END IF;
+
+  -- existing call deleted
+  ELSIF TG_OP = 'DELETE' THEN
+    -- don't update anything for a test call
+    IF NOT temba_channelevent_is_call(OLD) OR temba_contact_is_test(OLD.contact_id) THEN
+      RETURN NULL;
+    END IF;
+
+    IF OLD.is_active THEN
+      PERFORM temba_insert_system_label(OLD.org_id, 'C', -1);
+    END IF;
+
+  -- all calls deleted
+  ELSIF TG_OP = 'TRUNCATE' THEN
+    PERFORM temba_reset_system_labels('{"C"}');
+
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: temba_contact_is_test(integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_contact_is_test(_contact_id integer) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  _is_test BOOLEAN;
+BEGIN
+  SELECT is_test INTO STRICT _is_test FROM contacts_contact WHERE id = _contact_id;
+  RETURN _is_test;
+END;
+$$;
+
+
+--
+-- Name: temba_decrement_channelcount(integer, character varying, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_decrement_channelcount(_channel_id integer, _count_type character varying, _count_day date) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+              BEGIN
+                INSERT INTO channels_channelcount("channel_id", "count_type", "day", "count")
+                  VALUES(_channel_id, _count_type, _count_day, -1);
+                PERFORM temba_maybe_squash_channelcount(_channel_id, _count_type, _count_day);
+              END;
+            $$;
+
+
+--
+-- Name: temba_increment_channelcount(integer, character varying, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_increment_channelcount(_channel_id integer, _count_type character varying, _count_day date) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+              BEGIN
+                INSERT INTO channels_channelcount("channel_id", "count_type", "day", "count")
+                  VALUES(_channel_id, _count_type, _count_day, 1);
+                PERFORM temba_maybe_squash_channelcount(_channel_id, _count_type, _count_day);
+              END;
+            $$;
+
+
+--
+-- Name: temba_increment_system_label(integer, character, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_increment_system_label(_org_id integer, _label_type character, _add boolean) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF _add THEN
+    INSERT INTO msgs_systemlabel("org_id", "label_type", "count") VALUES(_org_id, _label_type, 1);
+  ELSE
+    INSERT INTO msgs_systemlabel("org_id", "label_type", "count") VALUES(_org_id, _label_type, -1);
+  END IF;
+
+  PERFORM temba_maybe_squash_systemlabel(_org_id, _label_type);
+END;
+$$;
+
+
+--
+-- Name: temba_insert_channelcount(integer, character varying, date, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_insert_channelcount(_channel_id integer, _count_type character varying, _count_day date, _count integer) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+  BEGIN
+    INSERT INTO channels_channelcount("channel_id", "count_type", "day", "count")
+      VALUES(_channel_id, _count_type, _count_day, _count);
+  END;
+$$;
+
+
+--
+-- Name: temba_insert_flowruncount(integer, character, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_insert_flowruncount(_flow_id integer, _exit_type character, _count integer) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+            BEGIN
+              INSERT INTO flows_flowruncount("flow_id", "exit_type", "count")
+              VALUES(_flow_id, _exit_type, _count);
+            END;
+            $$;
+
+
+--
+-- Name: temba_insert_system_label(integer, character, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_insert_system_label(_org_id integer, _label_type character, _count integer) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO msgs_systemlabel("org_id", "label_type", "count") VALUES(_org_id, _label_type, _count);
+END;
+$$;
+
+
+--
+-- Name: temba_insert_topupcredits(integer, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_insert_topupcredits(_topup_id integer, _count integer) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO orgs_topupcredits("topup_id", "used") VALUES(_topup_id, _count);
+END;
+$$;
+
+
+--
+-- Name: temba_maybe_squash_channelcount(integer, character varying, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_maybe_squash_channelcount(_channel_id integer, _count_type character varying, _count_day date) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+      BEGIN
+        IF RANDOM() < .001 THEN
+          -- Obtain a lock on the channel so that two threads don't enter this update at once
+          PERFORM "id" FROM channels_channel WHERE "id" = _channel_id FOR UPDATE;
+
+          IF _count_day IS NULL THEN
+            WITH removed as (DELETE FROM channels_channelcount
+              WHERE "channel_id" = _channel_id AND "count_type" = _count_type AND "day" IS NULL
+              RETURNING "count")
+              INSERT INTO channels_channelcount("channel_id", "count_type", "count")
+              VALUES (_channel_id, _count_type, GREATEST(0, (SELECT SUM("count") FROM removed)));
+          ELSE
+            WITH removed as (DELETE FROM channels_channelcount
+              WHERE "channel_id" = _channel_id AND "count_type" = _count_type AND "day" = _count_day
+              RETURNING "count")
+              INSERT INTO channels_channelcount("channel_id", "count_type", "day", "count")
+              VALUES (_channel_id, _count_type, _count_day, GREATEST(0, (SELECT SUM("count") FROM removed)));
+          END IF;
+        END IF;
+      END;
+    $$;
+
+
+--
+-- Name: temba_maybe_squash_systemlabel(integer, character); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_maybe_squash_systemlabel(_org_id integer, _label_type character) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF RANDOM() < .001 THEN
+    -- Acquire a lock on the org so we don't deadlock if another thread does this at the same time
+    PERFORM "id" from orgs_org where "id" = _org_id FOR UPDATE;
+
+    WITH deleted as (DELETE FROM msgs_systemlabel
+      WHERE "org_id" = _org_id AND "label_type" = _label_type
+      RETURNING "count")
+      INSERT INTO msgs_systemlabel("org_id", "label_type", "count")
+      VALUES (_org_id, _label_type, GREATEST(0, (SELECT SUM("count") FROM deleted)));
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: temba_maybe_squash_topupcredits(integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_maybe_squash_topupcredits(_topup_id integer) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF RANDOM() < .001 THEN
+    WITH deleted as (DELETE FROM orgs_topupcredits
+      WHERE "topup_id" = _topup_id
+      RETURNING "used")
+      INSERT INTO orgs_topupcredits("topup_id", "used")
+      VALUES (_topup_id, GREATEST(0, (SELECT SUM("used") FROM deleted)));
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: msgs_msg; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE msgs_msg (
+    id integer NOT NULL,
+    channel_id integer,
+    contact_id integer NOT NULL,
+    broadcast_id integer,
+    text text NOT NULL,
+    direction character varying(1) NOT NULL,
+    status character varying(1) NOT NULL,
+    response_to_id integer,
+    org_id integer NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    sent_on timestamp with time zone,
+    modified_on timestamp with time zone,
+    has_template_error boolean NOT NULL,
+    msg_type character varying(1),
+    msg_count integer NOT NULL,
+    external_id character varying(255),
+    error_count integer NOT NULL,
+    next_attempt timestamp with time zone NOT NULL,
+    visibility character varying(1) NOT NULL,
+    topup_id integer,
+    queued_on timestamp with time zone,
+    priority integer NOT NULL,
+    contact_urn_id integer,
+    media character varying(255)
+);
+
+
+--
+-- Name: temba_msg_determine_system_label(msgs_msg); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_msg_determine_system_label(_msg msgs_msg) RETURNS character
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF _msg.direction = 'I' THEN
+    IF _msg.visibility = 'V' THEN
+      IF _msg.msg_type = 'I' THEN
+        RETURN 'I';
+      ELSIF _msg.msg_type = 'F' THEN
+        RETURN 'W';
+      END IF;
+    ELSIF _msg.visibility = 'A' THEN
+      RETURN 'A';
+    END IF;
+  ELSE
+    IF _msg.VISIBILITY = 'V' THEN
+      IF _msg.status = 'P' OR _msg.status = 'Q' THEN
+        RETURN 'O';
+      ELSIF _msg.status = 'W' OR _msg.status = 'S' OR _msg.status = 'D' THEN
+        RETURN 'S';
+      ELSIF _msg.status = 'F' THEN
+        RETURN 'X';
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NULL; -- might not match any label
+END;
+$$;
+
+
+--
+-- Name: temba_msg_labels_on_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_msg_labels_on_change() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
@@ -331,25 +679,89 @@ $$;
 
 
 --
--- Name: update_msg_user_label_counts(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: temba_msg_on_change(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION update_msg_user_label_counts() RETURNS trigger
+CREATE FUNCTION temba_msg_on_change() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
+DECLARE
+  _is_test BOOLEAN;
+  _new_label_type CHAR(1);
+  _old_label_type CHAR(1);
 BEGIN
-  -- is being archived (i.e. no longer included)
-  IF OLD.visibility = 'V' AND NEW.visibility = 'A' THEN
-    UPDATE msgs_label SET visible_count = visible_count - 1
-    FROM msgs_msg_labels
-    WHERE msgs_label.label_type = 'L' AND msgs_msg_labels.label_id = msgs_label.id AND msgs_msg_labels.msg_id = NEW.id;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    -- prevent illegal message states
+    IF NEW.direction = 'I' AND NEW.status NOT IN ('P', 'H') THEN
+      RAISE EXCEPTION 'Incoming messages can only be PENDING or HANDLED';
+    END IF;
+    IF NEW.direction = 'O' AND NEW.visibility = 'A' THEN
+      RAISE EXCEPTION 'Outgoing messages cannot be archived';
+    END IF;
   END IF;
 
-  -- is being restored (i.e. now included)
-  IF OLD.visibility = 'A' AND NEW.visibility = 'V' THEN
-    UPDATE msgs_label SET visible_count = visible_count + 1
-    FROM msgs_msg_labels
-    WHERE msgs_label.label_type = 'L' AND msgs_msg_labels.label_id = msgs_label.id AND msgs_msg_labels.msg_id = NEW.id;
+  -- new message inserted
+  IF TG_OP = 'INSERT' THEN
+    -- don't update anything for a test message
+    IF temba_contact_is_test(NEW.contact_id) THEN
+      RETURN NULL;
+    END IF;
+
+    _new_label_type := temba_msg_determine_system_label(NEW);
+    IF _new_label_type IS NOT NULL THEN
+      PERFORM temba_insert_system_label(NEW.org_id, _new_label_type, 1);
+    END IF;
+
+  -- existing message updated
+  ELSIF TG_OP = 'UPDATE' THEN
+    _old_label_type := temba_msg_determine_system_label(OLD);
+    _new_label_type := temba_msg_determine_system_label(NEW);
+
+    IF _old_label_type IS DISTINCT FROM _new_label_type THEN
+      -- don't update anything for a test message
+      IF temba_contact_is_test(NEW.contact_id) THEN
+        RETURN NULL;
+      END IF;
+
+      IF _old_label_type IS NOT NULL THEN
+        PERFORM temba_insert_system_label(OLD.org_id, _old_label_type, -1);
+      END IF;
+      IF _new_label_type IS NOT NULL THEN
+        PERFORM temba_insert_system_label(NEW.org_id, _new_label_type, 1);
+      END IF;
+    END IF;
+
+    -- is being archived or deleted (i.e. no longer included for user labels)
+    IF OLD.visibility = 'V' AND NEW.visibility != 'V' THEN
+      UPDATE msgs_label SET visible_count = visible_count - 1
+      FROM msgs_msg_labels
+      WHERE msgs_label.label_type = 'L' AND msgs_msg_labels.label_id = msgs_label.id AND msgs_msg_labels.msg_id = NEW.id;
+    END IF;
+
+    -- is being restored (i.e. now included for user labels)
+    IF OLD.visibility != 'V' AND NEW.visibility = 'V' THEN
+      UPDATE msgs_label SET visible_count = visible_count + 1
+      FROM msgs_msg_labels
+      WHERE msgs_label.label_type = 'L' AND msgs_msg_labels.label_id = msgs_label.id AND msgs_msg_labels.msg_id = NEW.id;
+    END IF;
+
+  -- existing message deleted
+  ELSIF TG_OP = 'DELETE' THEN
+    -- don't update anything for a test message
+    IF temba_contact_is_test(OLD.contact_id) THEN
+      RETURN NULL;
+    END IF;
+
+    _old_label_type := temba_msg_determine_system_label(OLD);
+
+    IF _old_label_type IS NOT NULL THEN
+      PERFORM temba_insert_system_label(OLD.org_id, _old_label_type, -1);
+    END IF;
+
+  -- all messages deleted
+  ELSIF TG_OP = 'TRUNCATE' THEN
+    PERFORM temba_reset_system_labels('{"I", "W", "A", "O", "S", "X"}');
+
   END IF;
 
   RETURN NULL;
@@ -358,52 +770,606 @@ $$;
 
 
 --
--- Name: update_topup_used(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: temba_reset_system_labels(character[]); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION update_topup_used() RETURNS trigger
+CREATE FUNCTION temba_reset_system_labels(_label_types character[]) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  UPDATE msgs_systemlabel SET "count" = 0 WHERE label_type = ANY(_label_types);
+END;
+$$;
+
+
+--
+-- Name: temba_squash_channelcount(integer, character varying, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_squash_channelcount(_channel_id integer, _count_type character varying, _count_day date) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+  BEGIN
+    IF _count_day IS NULL THEN
+      WITH removed as (DELETE FROM channels_channelcount
+        WHERE "channel_id" = _channel_id AND "count_type" = _count_type AND "day" IS NULL
+        RETURNING "count")
+        INSERT INTO channels_channelcount("channel_id", "count_type", "count")
+        VALUES (_channel_id, _count_type, GREATEST(0, (SELECT SUM("count") FROM removed)));
+    ELSE
+      WITH removed as (DELETE FROM channels_channelcount
+        WHERE "channel_id" = _channel_id AND "count_type" = _count_type AND "day" = _count_day
+        RETURNING "count")
+        INSERT INTO channels_channelcount("channel_id", "count_type", "day", "count")
+        VALUES (_channel_id, _count_type, _count_day, GREATEST(0, (SELECT SUM("count") FROM removed)));
+    END IF;
+  END;
+$$;
+
+
+--
+-- Name: temba_squash_contactgroupcounts(integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_squash_contactgroupcounts(_group_id integer) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  WITH deleted as (DELETE FROM contacts_contactgroupcount
+    WHERE "group_id" = _group_id RETURNING "count")
+    INSERT INTO contacts_contactgroupcount("group_id", "count")
+    VALUES (_group_id, GREATEST(0, (SELECT SUM("count") FROM deleted)));
+END;
+$$;
+
+
+--
+-- Name: temba_squash_flowruncount(integer, character); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_squash_flowruncount(_flow_id integer, _exit_type character) RETURNS void
     LANGUAGE plpgsql
     AS $$
             BEGIN
-              -- Msg is being created
-              IF TG_OP = 'INSERT' THEN
-                -- If we have a topup, increment our # of used credits
-                IF NEW.topup_id IS NOT NULL THEN
-                  UPDATE orgs_topup SET used=used+1 where id=NEW.topup_id;
-                END IF;
-
-              -- Msg is being updated
-              ELSIF TG_OP = 'UPDATE' THEN
-                -- If the topup has changed
-                IF NEW.topup_id IS DISTINCT FROM OLD.topup_id THEN
-                  -- If our old topup wasn't null then decrement our used credits on it
-                  IF OLD.topup_id IS NOT NULL THEN
-                    UPDATE orgs_topup SET used=used-1 where id=OLD.topup_id;
-                  END IF;
-
-                  -- if our new topup isn't null, then increment our used credits on it
-                  IF NEW.topup_id IS NOT NULL THEN
-                    UPDATE orgs_topup SET used=used+1 where id=NEW.topup_id;
-                  END IF;
-                END IF;
-
-              -- Msg is being deleted
-              ELSIF TG_OP = 'DELETE' THEN
-                -- Remove a used credit if this Msg had one assigned
-                IF OLD.topup_id IS NOT NULL THEN
-                  UPDATE orgs_topup SET used=used-1 WHERE id=OLD.topup_id;
-                END IF;
-
-              -- Msgs table is being truncated
-              ELSIF TG_OP = 'TRUNCATE' THEN
-                -- Clear all used credits
-                UPDATE orgs_topup SET used=0;
-
+              IF _exit_type IS NULL THEN
+                WITH removed as (DELETE FROM flows_flowruncount
+                  WHERE "flow_id" = _flow_id AND "exit_type" IS NULL RETURNING "count")
+                  INSERT INTO flows_flowruncount("flow_id", "exit_type", "count")
+                  VALUES (_flow_id, _exit_type, GREATEST(0, (SELECT SUM("count") FROM removed)));
+              ELSE
+                WITH removed as (DELETE FROM flows_flowruncount
+                  WHERE "flow_id" = _flow_id AND "exit_type" = _exit_type RETURNING "count")
+                  INSERT INTO flows_flowruncount("flow_id", "exit_type", "count")
+                  VALUES (_flow_id, _exit_type, GREATEST(0, (SELECT SUM("count") FROM removed)));
               END IF;
-
-              RETURN NEW;
             END;
             $$;
+
+
+--
+-- Name: temba_squash_systemlabel(integer, character); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_squash_systemlabel(_org_id integer, _label_type character) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  WITH deleted as (DELETE FROM msgs_systemlabel
+    WHERE "org_id" = _org_id AND "label_type" = _label_type
+    RETURNING "count")
+    INSERT INTO msgs_systemlabel("org_id", "label_type", "count")
+    VALUES (_org_id, _label_type, GREATEST(0, (SELECT SUM("count") FROM deleted)));
+END;
+$$;
+
+
+--
+-- Name: temba_squash_topupcredits(integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_squash_topupcredits(_topup_id integer) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  WITH deleted as (DELETE FROM orgs_topupcredits
+    WHERE "topup_id" = _topup_id
+    RETURNING "used")
+    INSERT INTO orgs_topupcredits("topup_id", "used")
+    VALUES (_topup_id, GREATEST(0, (SELECT SUM("used") FROM deleted)));
+END;
+$$;
+
+
+--
+-- Name: temba_update_channelcount(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_update_channelcount() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  is_test boolean;
+BEGIN
+  -- Message being updated
+  IF TG_OP = 'INSERT' THEN
+    -- Return if there is no channel on this message
+    IF NEW.channel_id IS NULL THEN
+      RETURN NULL;
+    END IF;
+
+    -- Find out if this is a test contact
+    SELECT contacts_contact.is_test INTO STRICT is_test FROM contacts_contact WHERE id=NEW.contact_id;
+
+    -- Return if it is
+    IF is_test THEN
+      RETURN NULL;
+    END IF;
+
+    -- If this is an incoming message, without message type, then increment that count
+    IF NEW.direction = 'I' THEN
+      -- This is a voice message, increment that count
+      IF NEW.msg_type = 'V' THEN
+        PERFORM temba_insert_channelcount(NEW.channel_id, 'IV', NEW.created_on::date, 1);
+      -- Otherwise, this is a normal message
+      ELSE
+        PERFORM temba_insert_channelcount(NEW.channel_id, 'IM', NEW.created_on::date, 1);
+      END IF;
+
+    -- This is an outgoing message
+    ELSIF NEW.direction = 'O' THEN
+      -- This is a voice message, increment that count
+      IF NEW.msg_type = 'V' THEN
+        PERFORM temba_insert_channelcount(NEW.channel_id, 'OV', NEW.created_on::date, 1);
+      -- Otherwise, this is a normal message
+      ELSE
+        PERFORM temba_insert_channelcount(NEW.channel_id, 'OM', NEW.created_on::date, 1);
+      END IF;
+
+    END IF;
+
+  -- Assert that updates aren't happening that we don't approve of
+  ELSIF TG_OP = 'UPDATE' THEN
+    -- If the direction is changing, blow up
+    IF NEW.direction <> OLD.direction THEN
+      RAISE EXCEPTION 'Cannot change direction on messages';
+    END IF;
+
+    -- Cannot move from IVR to Text, or IVR to Text
+    IF (OLD.msg_type <> 'V' AND NEW.msg_type = 'V') OR (OLD.msg_type = 'V' AND NEW.msg_type <> 'V') THEN
+      RAISE EXCEPTION 'Cannot change a message from voice to something else or vice versa';
+    END IF;
+
+    -- Cannot change created_on
+    IF NEW.created_on <> OLD.created_on THEN
+      RAISE EXCEPTION 'Cannot change created_on on messages';
+    END IF;
+
+  -- Message is being deleted, we need to decrement our count
+  ELSIF TG_OP = 'DELETE' THEN
+    -- Find out if this is a test contact
+    SELECT contacts_contact.is_test INTO STRICT is_test FROM contacts_contact WHERE id=OLD.contact_id;
+
+    -- Escape out if this is a test contact
+    IF is_test THEN
+      RETURN NULL;
+    END IF;
+
+    -- This is an incoming message
+    IF OLD.direction = 'I' THEN
+      -- And it is voice
+      IF OLD.msg_type = 'V' THEN
+        PERFORM temba_insert_channelcount(OLD.channel_id, 'IV', OLD.created_on::date, -1);
+      -- Otherwise, this is a normal message
+      ELSE
+        PERFORM temba_insert_channelcount(OLD.channel_id, 'IM', OLD.created_on::date, -1);
+      END IF;
+
+    -- This is an outgoing message
+    ELSIF OLD.direction = 'O' THEN
+      -- And it is voice
+      IF OLD.msg_type = 'V' THEN
+        PERFORM temba_insert_channelcount(OLD.channel_id, 'OV', OLD.created_on::date, -1);
+      -- Otherwise, this is a normal message
+      ELSE
+        PERFORM temba_insert_channelcount(OLD.channel_id, 'OM', OLD.created_on::date, -1);
+      END IF;
+    END IF;
+
+  -- Table being cleared, reset all counts
+  ELSIF TG_OP = 'TRUNCATE' THEN
+    DELETE FROM channels_channel WHERE count_type IN ('IV', 'IM', 'OV', 'OM');
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: temba_update_channellog_count(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_update_channellog_count() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- ChannelLog being added
+  IF TG_OP = 'INSERT' THEN
+    -- Error, increment our error count
+    IF NEW.is_error THEN
+      PERFORM temba_insert_channelcount(NEW.channel_id, 'LE', NULL::date, 1);
+    -- Success, increment that count instead
+    ELSE
+      PERFORM temba_insert_channelcount(NEW.channel_id, 'LS', NULL::date, 1);
+    END IF;
+
+  -- ChannelLog being removed
+  ELSIF TG_OP = 'DELETE' THEN
+    -- Error, decrement our error count
+    if OLD.is_error THEN
+      PERFORM temba_insert_channelcount(OLD.channel_id, 'LE', NULL::date, -1);
+    -- Success, decrement that count instead
+    ELSE
+      PERFORM temba_insert_channelcount(OLD.channel_id, 'LS', NULL::date, -1);
+    END IF;
+
+  -- Updating is_error is forbidden
+  ELSIF TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION 'Cannot update is_error or channel_id on ChannelLog events';
+
+  -- Table being cleared, reset all counts
+  ELSIF TG_OP = 'TRUNCATE' THEN
+    DELETE FROM channels_channel WHERE count_type IN ('LE', 'LS');
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: temba_update_flowruncount(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_update_flowruncount() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+            BEGIN
+              -- Table being cleared, reset all counts
+              IF TG_OP = 'TRUNCATE' THEN
+                TRUNCATE flows_flowruncounts;
+                RETURN NULL;
+              END IF;
+
+              -- FlowRun being added
+              IF TG_OP = 'INSERT' THEN
+                 -- Is this a test contact, ignore
+                 IF temba_contact_is_test(NEW.contact_id) THEN
+                   RETURN NULL;
+                 END IF;
+
+                -- Increment appropriate type
+                PERFORM temba_insert_flowruncount(NEW.flow_id, NEW.exit_type, 1);
+
+              -- FlowRun being removed
+              ELSIF TG_OP = 'DELETE' THEN
+                 -- Is this a test contact, ignore
+                 IF temba_contact_is_test(OLD.contact_id) THEN
+                   RETURN NULL;
+                 END IF;
+
+                PERFORM temba_insert_flowruncount(OLD.flow_id, OLD.exit_type, -1);
+
+              -- Updating exit type
+              ELSIF TG_OP = 'UPDATE' THEN
+                 -- Is this a test contact, ignore
+                 IF temba_contact_is_test(NEW.contact_id) THEN
+                   RETURN NULL;
+                 END IF;
+
+                PERFORM temba_insert_flowruncount(OLD.flow_id, OLD.exit_type, -1);
+                PERFORM temba_insert_flowruncount(NEW.flow_id, NEW.exit_type, 1);
+              END IF;
+
+              RETURN NULL;
+            END;
+            $$;
+
+
+--
+-- Name: temba_update_topupcredits(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_update_topupcredits() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- Msg is being created
+  IF TG_OP = 'INSERT' THEN
+    -- If we have a topup, increment our # of used credits
+    IF NEW.topup_id IS NOT NULL THEN
+      PERFORM temba_insert_topupcredits(NEW.topup_id, 1);
+    END IF;
+
+  -- Msg is being updated
+  ELSIF TG_OP = 'UPDATE' THEN
+    -- If the topup has changed
+    IF NEW.topup_id IS DISTINCT FROM OLD.topup_id THEN
+      -- If our old topup wasn't null then decrement our used credits on it
+      IF OLD.topup_id IS NOT NULL THEN
+        PERFORM temba_insert_topupcredits(OLD.topup_id, -1);
+      END IF;
+
+      -- if our new topup isn't null, then increment our used credits on it
+      IF NEW.topup_id IS NOT NULL THEN
+        PERFORM temba_insert_topupcredits(NEW.topup_id, 1);
+      END IF;
+    END IF;
+
+  -- Msg is being deleted
+  ELSIF TG_OP = 'DELETE' THEN
+    -- Remove a used credit if this Msg had one assigned
+    IF OLD.topup_id IS NOT NULL THEN
+      PERFORM temba_insert_topupcredits(OLD.topup_id, -1);
+    END IF;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: temba_update_topupcredits_for_debit(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION temba_update_topupcredits_for_debit() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- Debit is being created
+  IF TG_OP = 'INSERT' THEN
+    -- If we are an allocation and have a topup, increment our # of used credits
+    IF NEW.topup_id IS NOT NULL AND NEW.debit_type = 'A' THEN
+      PERFORM temba_insert_topupcredits(NEW.topup_id, NEW.amount);
+    END IF;
+
+  -- Debit is being updated
+  ELSIF TG_OP = 'UPDATE' THEN
+    -- If the topup has changed
+    IF NEW.topup_id IS DISTINCT FROM OLD.topup_id AND NEW.debit_type = 'A' THEN
+      -- If our old topup wasn't null then decrement our used credits on it
+      IF OLD.topup_id IS NOT NULL THEN
+        PERFORM temba_insert_topupcredits(OLD.topup_id, OLD.amount);
+      END IF;
+
+      -- if our new topup isn't null, then increment our used credits on it
+      IF NEW.topup_id IS NOT NULL THEN
+        PERFORM temba_insert_topupcredits(NEW.topup_id, NEW.amount);
+      END IF;
+    END IF;
+
+  -- Debit is being deleted
+  ELSIF TG_OP = 'DELETE' THEN
+    -- Remove a used credit if this Debit had one assigned
+    IF OLD.topup_id IS NOT NULL AND NEW.debit_type = 'A' THEN
+      PERFORM temba_insert_topupcredits(OLD.topup_id, OLD.amount);
+    END IF;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: update_channellog_count(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION update_channellog_count() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+            BEGIN
+              -- ChannelLog being added
+              IF TG_OP = 'INSERT' THEN
+                -- Error, increment our error count
+                IF NEW.is_error THEN
+                  UPDATE channels_channel SET error_log_count=error_log_count+1 WHERE id=NEW.channel_id;
+                -- Success, increment that count instead
+                ELSE
+                  UPDATE channels_channel SET success_log_count=success_log_count+1 WHERE id=NEW.channel_id;
+                END IF;
+
+              -- ChannelLog being removed
+              ELSIF TG_OP = 'DELETE' THEN
+                -- Error, decrement our error count
+                if OLD.is_error THEN
+                  UPDATE channels_channel SET error_log_count=error_log_count-1 WHERE id=OLD.channel_id;
+                -- Success, decrement that count instead
+                ELSE
+                  UPDATE channels_channel SET success_log_count=success_log_count-1 WHERE id=OLD.channel_id;
+                END IF;
+
+              -- Updating is_error is forbidden
+              ELSIF TG_OP = 'UPDATE' THEN
+                RAISE EXCEPTION 'Cannot update is_error or channel_id on ChannelLog events';
+
+              -- Table being cleared, reset all counts
+              ELSIF TG_OP = 'TRUNCATE' THEN
+                UPDATE channels_channel SET error_log_count=0, success_log_count=0;
+              END IF;
+
+              RETURN NULL;
+            END;
+            $$;
+
+
+--
+-- Name: update_contact_system_groups(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION update_contact_system_groups() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- new contact added
+  IF TG_OP = 'INSERT' AND NEW.is_active AND NOT NEW.is_test THEN
+    IF NEW.is_blocked THEN
+      PERFORM contact_toggle_system_group(NEW, 'B', true);
+    END IF;
+
+    IF NEW.is_stopped THEN
+      PERFORM contact_toggle_system_group(NEW, 'S', true);
+    END IF;
+
+    IF NOT NEW.is_stopped AND NOT NEW.is_blocked THEN
+      PERFORM contact_toggle_system_group(NEW, 'A', true);
+    END IF;
+  END IF;
+
+  -- existing contact updated
+  IF TG_OP = 'UPDATE' AND NOT NEW.is_test THEN
+    -- do nothing for inactive contacts
+    IF NOT OLD.is_active AND NOT NEW.is_active THEN
+      RETURN NULL;
+    END IF;
+
+    -- is being blocked
+    IF NOT OLD.is_blocked AND NEW.is_blocked THEN
+      PERFORM contact_toggle_system_group(NEW, 'B', true);
+      PERFORM contact_toggle_system_group(NEW, 'A', false);
+    END IF;
+
+    -- is being unblocked
+    IF OLD.is_blocked AND NOT NEW.is_blocked THEN
+      PERFORM contact_toggle_system_group(NEW, 'B', false);
+      IF NOT NEW.is_stopped THEN
+        PERFORM contact_toggle_system_group(NEW, 'A', true);
+      END IF;
+    END IF;
+
+    -- they stopped themselves
+    IF NOT OLD.is_stopped AND NEW.is_stopped THEN
+      PERFORM contact_toggle_system_group(NEW, 'S', true);
+      PERFORM contact_toggle_system_group(NEW, 'A', false);
+    END IF;
+
+    -- they opted back in
+    IF OLD.is_stopped AND NOT NEW.is_stopped THEN
+    PERFORM contact_toggle_system_group(NEW, 'S', false);
+      IF NOT NEW.is_blocked THEN
+        PERFORM contact_toggle_system_group(NEW, 'A', true);
+      END IF;
+    END IF;
+
+    -- is being released
+    IF OLD.is_active AND NOT NEW.is_active THEN
+      PERFORM contact_toggle_system_group(NEW, 'A', false);
+      PERFORM contact_toggle_system_group(NEW, 'B', false);
+      PERFORM contact_toggle_system_group(NEW, 'S', false);
+    END IF;
+
+    -- is being unreleased
+    IF NOT OLD.is_active AND NEW.is_active THEN
+      IF NEW.is_blocked THEN
+        PERFORM contact_toggle_system_group(NEW, 'B', true);
+      END IF;
+
+      IF NEW.is_stopped THEN
+        PERFORM contact_toggle_system_group(NEW, 'S', true);
+      END IF;
+
+      IF NOT NEW.is_stopped AND NOT NEW.is_blocked THEN
+        PERFORM contact_toggle_system_group(NEW, 'A', true);
+      END IF;
+    END IF;
+
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: update_group_count(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION update_group_count() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  is_test BOOLEAN;
+BEGIN
+  -- contact being added to group
+  IF TG_OP = 'INSERT' THEN
+    -- is this a test contact
+    SELECT contacts_contact.is_test INTO STRICT is_test FROM contacts_contact WHERE id = NEW.contact_id;
+
+    IF NOT is_test THEN
+      INSERT INTO contacts_contactgroupcount("group_id", "count") VALUES(NEW.contactgroup_id, 1);
+    END IF;
+
+  -- contact being removed from a group
+  ELSIF TG_OP = 'DELETE' THEN
+    -- is this a test contact
+    SELECT contacts_contact.is_test INTO STRICT is_test FROM contacts_contact WHERE id = OLD.contact_id;
+
+    IF NOT is_test THEN
+      INSERT INTO contacts_contactgroupcount("group_id", "count") VALUES(OLD.contactgroup_id, -1);
+    END IF;
+
+  -- table being cleared, clear our counts
+  ELSIF TG_OP = 'TRUNCATE' THEN
+    TRUNCATE contacts_contactgroupcount;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: airtime_airtimetransfer; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE airtime_airtimetransfer (
+    id integer NOT NULL,
+    is_active boolean NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    modified_on timestamp with time zone NOT NULL,
+    status character varying(1) NOT NULL,
+    recipient character varying(64) NOT NULL,
+    amount double precision NOT NULL,
+    denomination character varying(32),
+    data text,
+    response text,
+    message character varying(255),
+    channel_id integer,
+    contact_id integer NOT NULL,
+    created_by_id integer NOT NULL,
+    modified_by_id integer NOT NULL,
+    org_id integer NOT NULL
+);
+
+
+--
+-- Name: airtime_airtimetransfer_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE airtime_airtimetransfer_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: airtime_airtimetransfer_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE airtime_airtimetransfer_id_seq OWNED BY airtime_airtimetransfer.id;
 
 
 --
@@ -414,8 +1380,80 @@ CREATE TABLE api_apitoken (
     key character varying(40) NOT NULL,
     user_id integer NOT NULL,
     org_id integer NOT NULL,
-    created timestamp with time zone NOT NULL
+    created timestamp with time zone NOT NULL,
+    role_id integer NOT NULL,
+    is_active boolean NOT NULL
 );
+
+
+--
+-- Name: api_resthook; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE api_resthook (
+    id integer NOT NULL,
+    is_active boolean NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    modified_on timestamp with time zone NOT NULL,
+    slug character varying(50) NOT NULL,
+    created_by_id integer NOT NULL,
+    modified_by_id integer NOT NULL,
+    org_id integer NOT NULL
+);
+
+
+--
+-- Name: api_resthook_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE api_resthook_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: api_resthook_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE api_resthook_id_seq OWNED BY api_resthook.id;
+
+
+--
+-- Name: api_resthooksubscriber; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE api_resthooksubscriber (
+    id integer NOT NULL,
+    is_active boolean NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    modified_on timestamp with time zone NOT NULL,
+    target_url character varying(200) NOT NULL,
+    created_by_id integer NOT NULL,
+    modified_by_id integer NOT NULL,
+    resthook_id integer NOT NULL
+);
+
+
+--
+-- Name: api_resthooksubscriber_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE api_resthooksubscriber_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: api_resthooksubscriber_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE api_resthooksubscriber_id_seq OWNED BY api_resthooksubscriber.id;
 
 
 --
@@ -436,7 +1474,8 @@ CREATE TABLE api_webhookevent (
     try_count integer NOT NULL,
     org_id integer NOT NULL,
     next_attempt timestamp with time zone,
-    action character varying(8) NOT NULL
+    action character varying(8) NOT NULL,
+    resthook_id integer
 );
 
 
@@ -475,7 +1514,8 @@ CREATE TABLE api_webhookresult (
     message character varying(255) NOT NULL,
     body text,
     url text,
-    data text
+    data text,
+    request text
 );
 
 
@@ -563,7 +1603,7 @@ ALTER SEQUENCE auth_group_permissions_id_seq OWNED BY auth_group_permissions.id;
 
 CREATE TABLE auth_permission (
     id integer NOT NULL,
-    name character varying(50) NOT NULL,
+    name character varying(255) NOT NULL,
     content_type_id integer NOT NULL,
     codename character varying(100) NOT NULL
 );
@@ -595,7 +1635,7 @@ ALTER SEQUENCE auth_permission_id_seq OWNED BY auth_permission.id;
 CREATE TABLE auth_user (
     id integer NOT NULL,
     password character varying(128) NOT NULL,
-    last_login timestamp with time zone NOT NULL,
+    last_login timestamp with time zone,
     is_superuser boolean NOT NULL,
     username character varying(254) NOT NULL,
     first_name character varying(30) NOT NULL,
@@ -890,8 +1930,7 @@ CREATE TABLE channels_alert (
     sync_event_id integer,
     alert_type character varying(1) NOT NULL,
     ended_on timestamp with time zone,
-    channel_id integer NOT NULL,
-    host character varying(32) NOT NULL
+    channel_id integer NOT NULL
 );
 
 
@@ -933,15 +1972,16 @@ CREATE TABLE channels_channel (
     last_seen timestamp with time zone NOT NULL,
     claim_code character varying(16),
     country character varying(2),
-    alert_email character varying(75),
-    uuid character varying(36),
+    alert_email character varying(254),
+    uuid character varying(36) NOT NULL,
     device character varying(255),
     os character varying(255),
     channel_type character varying(3) NOT NULL,
     config text,
     role character varying(4) NOT NULL,
     parent_id integer,
-    bod text
+    bod text,
+    scheme character varying(8) NOT NULL
 );
 
 
@@ -965,6 +2005,57 @@ ALTER SEQUENCE channels_channel_id_seq OWNED BY channels_channel.id;
 
 
 --
+-- Name: channels_channelcount; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE channels_channelcount (
+    id integer NOT NULL,
+    count_type character varying(2) NOT NULL,
+    day date,
+    count integer NOT NULL,
+    channel_id integer NOT NULL
+);
+
+
+--
+-- Name: channels_channelcount_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE channels_channelcount_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: channels_channelcount_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE channels_channelcount_id_seq OWNED BY channels_channelcount.id;
+
+
+--
+-- Name: channels_channelevent_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE channels_channelevent_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: channels_channelevent_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE channels_channelevent_id_seq OWNED BY channels_channelevent.id;
+
+
+--
 -- Name: channels_channellog; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -978,7 +2069,8 @@ CREATE TABLE channels_channellog (
     response text,
     response_status integer,
     created_on timestamp with time zone NOT NULL,
-    is_error boolean NOT NULL
+    is_error boolean NOT NULL,
+    channel_id integer NOT NULL
 );
 
 
@@ -1074,7 +2166,11 @@ CREATE TABLE contacts_contactfield (
     key character varying(36) NOT NULL,
     is_active boolean NOT NULL,
     show_in_table boolean NOT NULL,
-    value_type character varying(1) NOT NULL
+    value_type character varying(1) NOT NULL,
+    created_by_id integer NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    modified_by_id integer NOT NULL,
+    modified_on timestamp with time zone NOT NULL
 );
 
 
@@ -1198,6 +2294,36 @@ ALTER SEQUENCE contacts_contactgroup_query_fields_id_seq OWNED BY contacts_conta
 
 
 --
+-- Name: contacts_contactgroupcount; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE contacts_contactgroupcount (
+    id integer NOT NULL,
+    count integer NOT NULL,
+    group_id integer NOT NULL
+);
+
+
+--
+-- Name: contacts_contactgroupcount_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE contacts_contactgroupcount_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: contacts_contactgroupcount_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE contacts_contactgroupcount_id_seq OWNED BY contacts_contactgroupcount.id;
+
+
+--
 -- Name: contacts_contacturn; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -1245,8 +2371,9 @@ CREATE TABLE contacts_exportcontactstask (
     modified_on timestamp with time zone NOT NULL,
     org_id integer NOT NULL,
     group_id integer,
-    host character varying(32) NOT NULL,
-    task_id character varying(64)
+    task_id character varying(64),
+    is_finished boolean NOT NULL,
+    uuid character varying(36)
 );
 
 
@@ -1453,7 +2580,6 @@ ALTER SEQUENCE dashboard_website_id_seq OWNED BY dashboard_website.id;
 
 CREATE TABLE django_content_type (
     id integer NOT NULL,
-    name character varying(100) NOT NULL,
     app_label character varying(100) NOT NULL,
     model character varying(100) NOT NULL
 );
@@ -1778,7 +2904,8 @@ CREATE TABLE flows_actionlog (
     id integer NOT NULL,
     run_id integer NOT NULL,
     text text NOT NULL,
-    created_on timestamp with time zone NOT NULL
+    created_on timestamp with time zone NOT NULL,
+    level character varying(1) NOT NULL
 );
 
 
@@ -1850,8 +2977,10 @@ CREATE TABLE flows_exportflowresultstask (
     modified_by_id integer NOT NULL,
     modified_on timestamp with time zone NOT NULL,
     task_id character varying(64),
-    host character varying(32) NOT NULL,
-    org_id integer NOT NULL
+    org_id integer NOT NULL,
+    is_finished boolean NOT NULL,
+    uuid character varying(36),
+    config text
 );
 
 
@@ -1926,8 +3055,9 @@ CREATE TABLE flows_flow (
     ignore_triggers boolean NOT NULL,
     saved_on timestamp with time zone NOT NULL,
     saved_by_id integer NOT NULL,
-    base_language character varying(3),
-    uuid character varying(36) NOT NULL
+    base_language character varying(4),
+    uuid character varying(36) NOT NULL,
+    version_number integer NOT NULL
 );
 
 
@@ -1988,7 +3118,8 @@ CREATE TABLE flows_flowlabel (
     id integer NOT NULL,
     name character varying(64) NOT NULL,
     parent_id integer,
-    org_id integer NOT NULL
+    org_id integer NOT NULL,
+    uuid character varying(36) NOT NULL
 );
 
 
@@ -2012,6 +3143,24 @@ ALTER SEQUENCE flows_flowlabel_id_seq OWNED BY flows_flowlabel.id;
 
 
 --
+-- Name: flows_flowrevision; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE flows_flowrevision (
+    id integer NOT NULL,
+    is_active boolean NOT NULL,
+    created_by_id integer NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    modified_by_id integer NOT NULL,
+    modified_on timestamp with time zone NOT NULL,
+    flow_id integer NOT NULL,
+    definition text NOT NULL,
+    spec_version integer NOT NULL,
+    revision integer
+);
+
+
+--
 -- Name: flows_flowrun; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -2023,9 +3172,16 @@ CREATE TABLE flows_flowrun (
     is_active boolean NOT NULL,
     fields text,
     expires_on timestamp with time zone,
-    expired_on timestamp with time zone,
+    exited_on timestamp with time zone,
     call_id integer,
-    start_id integer
+    start_id integer,
+    modified_on timestamp with time zone NOT NULL,
+    org_id integer NOT NULL,
+    exit_type character varying(1),
+    responded boolean NOT NULL,
+    submitted_by_id integer,
+    parent_id integer,
+    timeout_on timestamp with time zone
 );
 
 
@@ -2049,6 +3205,37 @@ ALTER SEQUENCE flows_flowrun_id_seq OWNED BY flows_flowrun.id;
 
 
 --
+-- Name: flows_flowruncount; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE flows_flowruncount (
+    id integer NOT NULL,
+    exit_type character varying(1),
+    count integer NOT NULL,
+    flow_id integer NOT NULL
+);
+
+
+--
+-- Name: flows_flowruncount_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE flows_flowruncount_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: flows_flowruncount_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE flows_flowruncount_id_seq OWNED BY flows_flowruncount.id;
+
+
+--
 -- Name: flows_flowstart; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -2062,7 +3249,8 @@ CREATE TABLE flows_flowstart (
     flow_id integer NOT NULL,
     restart_participants boolean NOT NULL,
     status character varying(1) NOT NULL,
-    contact_count integer NOT NULL
+    contact_count integer NOT NULL,
+    extra text
 );
 
 
@@ -2166,6 +3354,36 @@ CREATE TABLE flows_flowstep (
 
 
 --
+-- Name: flows_flowstep_broadcasts; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE flows_flowstep_broadcasts (
+    id integer NOT NULL,
+    flowstep_id integer NOT NULL,
+    broadcast_id integer NOT NULL
+);
+
+
+--
+-- Name: flows_flowstep_broadcasts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE flows_flowstep_broadcasts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: flows_flowstep_broadcasts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE flows_flowstep_broadcasts_id_seq OWNED BY flows_flowstep_broadcasts.id;
+
+
+--
 -- Name: flows_flowstep_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2215,22 +3433,6 @@ ALTER SEQUENCE flows_flowstep_messages_id_seq OWNED BY flows_flowstep_messages.i
 
 
 --
--- Name: flows_flowversion; Type: TABLE; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE TABLE flows_flowversion (
-    id integer NOT NULL,
-    is_active boolean NOT NULL,
-    created_by_id integer NOT NULL,
-    created_on timestamp with time zone NOT NULL,
-    modified_by_id integer NOT NULL,
-    modified_on timestamp with time zone NOT NULL,
-    flow_id integer NOT NULL,
-    definition text NOT NULL
-);
-
-
---
 -- Name: flows_flowversion_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2246,7 +3448,7 @@ CREATE SEQUENCE flows_flowversion_id_seq
 -- Name: flows_flowversion_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE flows_flowversion_id_seq OWNED BY flows_flowversion.id;
+ALTER SEQUENCE flows_flowversion_id_seq OWNED BY flows_flowrevision.id;
 
 
 --
@@ -2268,7 +3470,9 @@ CREATE TABLE flows_ruleset (
     webhook_action character varying(8),
     finished_key character varying(1),
     value_type character varying(1) NOT NULL,
-    response_type character varying(1) NOT NULL
+    response_type character varying(1) NOT NULL,
+    ruleset_type character varying(16),
+    config text
 );
 
 
@@ -2377,7 +3581,8 @@ CREATE TABLE ivr_ivrcall (
     org_id integer NOT NULL,
     call_type character varying(1) NOT NULL,
     duration integer,
-    contact_urn_id integer NOT NULL
+    contact_urn_id integer NOT NULL,
+    parent_id integer
 );
 
 
@@ -2411,7 +3616,13 @@ CREATE TABLE locations_adminboundary (
     level integer NOT NULL,
     geometry geometry(MultiPolygon,4326),
     simplified_geometry geometry(MultiPolygon,4326),
-    parent_id integer
+    parent_id integer,
+    lft integer NOT NULL,
+    rght integer NOT NULL,
+    tree_id integer NOT NULL,
+    CONSTRAINT locations_adminboundary_lft_check CHECK ((lft >= 0)),
+    CONSTRAINT locations_adminboundary_rght_check CHECK ((rght >= 0)),
+    CONSTRAINT locations_adminboundary_tree_id_check CHECK ((tree_id >= 0))
 );
 
 
@@ -2468,28 +3679,6 @@ CREATE SEQUENCE locations_boundaryalias_id_seq
 --
 
 ALTER SEQUENCE locations_boundaryalias_id_seq OWNED BY locations_boundaryalias.id;
-
-
---
--- Name: msgs_broadcast; Type: TABLE; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE TABLE msgs_broadcast (
-    id integer NOT NULL,
-    is_active boolean NOT NULL,
-    created_by_id integer NOT NULL,
-    created_on timestamp with time zone NOT NULL,
-    modified_by_id integer NOT NULL,
-    modified_on timestamp with time zone NOT NULL,
-    text text NOT NULL,
-    status character varying(1) NOT NULL,
-    org_id integer NOT NULL,
-    schedule_id integer,
-    parent_id integer,
-    language_dict text,
-    recipient_count integer,
-    channel_id integer
-);
 
 
 --
@@ -2572,6 +3761,36 @@ ALTER SEQUENCE msgs_broadcast_id_seq OWNED BY msgs_broadcast.id;
 
 
 --
+-- Name: msgs_broadcast_recipients; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE msgs_broadcast_recipients (
+    id integer NOT NULL,
+    broadcast_id integer NOT NULL,
+    contact_id integer NOT NULL
+);
+
+
+--
+-- Name: msgs_broadcast_recipients_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE msgs_broadcast_recipients_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: msgs_broadcast_recipients_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE msgs_broadcast_recipients_id_seq OWNED BY msgs_broadcast_recipients.id;
+
+
+--
 -- Name: msgs_broadcast_urns; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -2602,45 +3821,6 @@ ALTER SEQUENCE msgs_broadcast_urns_id_seq OWNED BY msgs_broadcast_urns.id;
 
 
 --
--- Name: msgs_call; Type: TABLE; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE TABLE msgs_call (
-    id integer NOT NULL,
-    is_active boolean NOT NULL,
-    created_by_id integer NOT NULL,
-    created_on timestamp with time zone NOT NULL,
-    modified_by_id integer NOT NULL,
-    modified_on timestamp with time zone NOT NULL,
-    channel_id integer,
-    contact_id integer NOT NULL,
-    "time" timestamp with time zone NOT NULL,
-    duration integer NOT NULL,
-    call_type character varying(16) NOT NULL,
-    org_id integer NOT NULL
-);
-
-
---
--- Name: msgs_call_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE msgs_call_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: msgs_call_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE msgs_call_id_seq OWNED BY msgs_call.id;
-
-
---
 -- Name: msgs_exportmessagestask; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -2654,9 +3834,10 @@ CREATE TABLE msgs_exportmessagestask (
     org_id integer NOT NULL,
     start_date date,
     end_date date,
-    host character varying(32) NOT NULL,
     task_id character varying(64),
-    label_id integer
+    label_id integer,
+    is_finished boolean NOT NULL,
+    uuid character varying(36)
 );
 
 
@@ -2750,38 +3931,6 @@ ALTER SEQUENCE msgs_label_id_seq OWNED BY msgs_label.id;
 
 
 --
--- Name: msgs_msg; Type: TABLE; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE TABLE msgs_msg (
-    id integer NOT NULL,
-    channel_id integer,
-    contact_id integer NOT NULL,
-    broadcast_id integer,
-    text text NOT NULL,
-    direction character varying(1) NOT NULL,
-    status character varying(1) NOT NULL,
-    response_to_id integer,
-    org_id integer NOT NULL,
-    created_on timestamp with time zone NOT NULL,
-    sent_on timestamp with time zone,
-    delivered_on timestamp with time zone,
-    has_template_error boolean NOT NULL,
-    msg_type character varying(1),
-    msg_count integer NOT NULL,
-    external_id character varying(255),
-    error_count integer NOT NULL,
-    next_attempt timestamp with time zone NOT NULL,
-    visibility character varying(1) NOT NULL,
-    topup_id integer,
-    queued_on timestamp with time zone,
-    priority integer NOT NULL,
-    contact_urn_id integer NOT NULL,
-    recording_url character varying(255)
-);
-
-
---
 -- Name: msgs_msg_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2831,6 +3980,37 @@ ALTER SEQUENCE msgs_msg_labels_id_seq OWNED BY msgs_msg_labels.id;
 
 
 --
+-- Name: msgs_systemlabel; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE msgs_systemlabel (
+    id integer NOT NULL,
+    label_type character varying(1) NOT NULL,
+    count integer NOT NULL,
+    org_id integer NOT NULL
+);
+
+
+--
+-- Name: msgs_systemlabel_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE msgs_systemlabel_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: msgs_systemlabel_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE msgs_systemlabel_id_seq OWNED BY msgs_systemlabel.id;
+
+
+--
 -- Name: orgs_creditalert; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -2842,7 +4022,7 @@ CREATE TABLE orgs_creditalert (
     modified_by_id integer NOT NULL,
     modified_on timestamp with time zone NOT NULL,
     org_id integer NOT NULL,
-    threshold integer NOT NULL
+    alert_type character varying(1) NOT NULL
 );
 
 
@@ -2866,6 +4046,40 @@ ALTER SEQUENCE orgs_creditalert_id_seq OWNED BY orgs_creditalert.id;
 
 
 --
+-- Name: orgs_debit; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE orgs_debit (
+    id integer NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    amount integer NOT NULL,
+    debit_type character varying(1) NOT NULL,
+    beneficiary_id integer,
+    created_by_id integer,
+    topup_id integer NOT NULL
+);
+
+
+--
+-- Name: orgs_debit_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE orgs_debit_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: orgs_debit_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE orgs_debit_id_seq OWNED BY orgs_debit.id;
+
+
+--
 -- Name: orgs_invitation; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -2877,10 +4091,9 @@ CREATE TABLE orgs_invitation (
     modified_by_id integer NOT NULL,
     modified_on timestamp with time zone NOT NULL,
     org_id integer NOT NULL,
-    email character varying(75) NOT NULL,
+    email character varying(254) NOT NULL,
     secret character varying(64) NOT NULL,
-    user_group character varying(1) NOT NULL,
-    host character varying(32) NOT NULL
+    user_group character varying(1) NOT NULL
 );
 
 
@@ -2952,7 +4165,7 @@ CREATE TABLE orgs_org (
     modified_on timestamp with time zone NOT NULL,
     name character varying(128) NOT NULL,
     msg_last_viewed timestamp with time zone NOT NULL,
-    webhook character varying(255),
+    webhook text,
     webhook_events integer NOT NULL,
     plan character varying(16) NOT NULL,
     plan_start timestamp with time zone NOT NULL,
@@ -2965,7 +4178,10 @@ CREATE TABLE orgs_org (
     slug character varying(255),
     is_anon boolean NOT NULL,
     country_id integer,
-    primary_language_id integer
+    primary_language_id integer,
+    brand character varying(128) NOT NULL,
+    surveyor_password character varying(128),
+    parent_id integer
 );
 
 
@@ -3049,6 +4265,36 @@ ALTER SEQUENCE orgs_org_id_seq OWNED BY orgs_org.id;
 
 
 --
+-- Name: orgs_org_surveyors; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE orgs_org_surveyors (
+    id integer NOT NULL,
+    org_id integer NOT NULL,
+    user_id integer NOT NULL
+);
+
+
+--
+-- Name: orgs_org_surveyors_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE orgs_org_surveyors_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: orgs_org_surveyors_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE orgs_org_surveyors_id_seq OWNED BY orgs_org_surveyors.id;
+
+
+--
 -- Name: orgs_org_viewers; Type: TABLE; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -3090,12 +4336,11 @@ CREATE TABLE orgs_topup (
     modified_by_id integer NOT NULL,
     modified_on timestamp with time zone NOT NULL,
     org_id integer NOT NULL,
-    price integer NOT NULL,
+    price integer,
     credits integer NOT NULL,
     expires_on timestamp with time zone NOT NULL,
     stripe_charge character varying(32),
-    comment character varying(255),
-    used integer NOT NULL
+    comment character varying(255)
 );
 
 
@@ -3116,6 +4361,36 @@ CREATE SEQUENCE orgs_topup_id_seq
 --
 
 ALTER SEQUENCE orgs_topup_id_seq OWNED BY orgs_topup.id;
+
+
+--
+-- Name: orgs_topupcredits; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE TABLE orgs_topupcredits (
+    id integer NOT NULL,
+    used integer NOT NULL,
+    topup_id integer NOT NULL
+);
+
+
+--
+-- Name: orgs_topupcredits_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE orgs_topupcredits_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: orgs_topupcredits_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE orgs_topupcredits_id_seq OWNED BY orgs_topupcredits.id;
 
 
 --
@@ -3160,7 +4435,7 @@ CREATE TABLE public_lead (
     created_on timestamp with time zone NOT NULL,
     modified_by_id integer NOT NULL,
     modified_on timestamp with time zone NOT NULL,
-    email character varying(75) NOT NULL
+    email character varying(254) NOT NULL
 );
 
 
@@ -3276,7 +4551,8 @@ CREATE TABLE schedules_schedule (
     next_fire timestamp with time zone,
     repeat_day_of_month integer,
     repeat_hour_of_day integer,
-    status character varying(1) NOT NULL
+    status character varying(1) NOT NULL,
+    repeat_minute_of_hour integer
 );
 
 
@@ -3343,7 +4619,7 @@ CREATE TABLE triggers_trigger (
     modified_on timestamp with time zone NOT NULL,
     org_id integer NOT NULL,
     keyword character varying(16),
-    flow_id integer,
+    flow_id integer NOT NULL,
     last_triggered timestamp with time zone,
     trigger_count integer NOT NULL,
     is_archived boolean NOT NULL,
@@ -3543,7 +4819,7 @@ CREATE TABLE values_value (
     rule_uuid character varying(255),
     category character varying(128),
     location_value_id integer,
-    recording_value text
+    media_value text
 );
 
 
@@ -3564,6 +4840,27 @@ CREATE SEQUENCE values_value_id_seq
 --
 
 ALTER SEQUENCE values_value_id_seq OWNED BY values_value.id;
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY airtime_airtimetransfer ALTER COLUMN id SET DEFAULT nextval('airtime_airtimetransfer_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_resthook ALTER COLUMN id SET DEFAULT nextval('api_resthook_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_resthooksubscriber ALTER COLUMN id SET DEFAULT nextval('api_resthooksubscriber_id_seq'::regclass);
 
 
 --
@@ -3675,6 +4972,20 @@ ALTER TABLE ONLY channels_channel ALTER COLUMN id SET DEFAULT nextval('channels_
 -- Name: id; Type: DEFAULT; Schema: public; Owner: -
 --
 
+ALTER TABLE ONLY channels_channelcount ALTER COLUMN id SET DEFAULT nextval('channels_channelcount_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY channels_channelevent ALTER COLUMN id SET DEFAULT nextval('channels_channelevent_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
 ALTER TABLE ONLY channels_channellog ALTER COLUMN id SET DEFAULT nextval('channels_channellog_id_seq'::regclass);
 
 
@@ -3718,6 +5029,13 @@ ALTER TABLE ONLY contacts_contactgroup_contacts ALTER COLUMN id SET DEFAULT next
 --
 
 ALTER TABLE ONLY contacts_contactgroup_query_fields ALTER COLUMN id SET DEFAULT nextval('contacts_contactgroup_query_fields_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY contacts_contactgroupcount ALTER COLUMN id SET DEFAULT nextval('contacts_contactgroupcount_id_seq'::regclass);
 
 
 --
@@ -3885,7 +5203,21 @@ ALTER TABLE ONLY flows_flowlabel ALTER COLUMN id SET DEFAULT nextval('flows_flow
 -- Name: id; Type: DEFAULT; Schema: public; Owner: -
 --
 
+ALTER TABLE ONLY flows_flowrevision ALTER COLUMN id SET DEFAULT nextval('flows_flowversion_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
 ALTER TABLE ONLY flows_flowrun ALTER COLUMN id SET DEFAULT nextval('flows_flowrun_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowruncount ALTER COLUMN id SET DEFAULT nextval('flows_flowruncount_id_seq'::regclass);
 
 
 --
@@ -3920,14 +5252,14 @@ ALTER TABLE ONLY flows_flowstep ALTER COLUMN id SET DEFAULT nextval('flows_flows
 -- Name: id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY flows_flowstep_messages ALTER COLUMN id SET DEFAULT nextval('flows_flowstep_messages_id_seq'::regclass);
+ALTER TABLE ONLY flows_flowstep_broadcasts ALTER COLUMN id SET DEFAULT nextval('flows_flowstep_broadcasts_id_seq'::regclass);
 
 
 --
 -- Name: id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY flows_flowversion ALTER COLUMN id SET DEFAULT nextval('flows_flowversion_id_seq'::regclass);
+ALTER TABLE ONLY flows_flowstep_messages ALTER COLUMN id SET DEFAULT nextval('flows_flowstep_messages_id_seq'::regclass);
 
 
 --
@@ -3997,14 +5329,14 @@ ALTER TABLE ONLY msgs_broadcast_groups ALTER COLUMN id SET DEFAULT nextval('msgs
 -- Name: id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY msgs_broadcast_urns ALTER COLUMN id SET DEFAULT nextval('msgs_broadcast_urns_id_seq'::regclass);
+ALTER TABLE ONLY msgs_broadcast_recipients ALTER COLUMN id SET DEFAULT nextval('msgs_broadcast_recipients_id_seq'::regclass);
 
 
 --
 -- Name: id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY msgs_call ALTER COLUMN id SET DEFAULT nextval('msgs_call_id_seq'::regclass);
+ALTER TABLE ONLY msgs_broadcast_urns ALTER COLUMN id SET DEFAULT nextval('msgs_broadcast_urns_id_seq'::regclass);
 
 
 --
@@ -4046,7 +5378,21 @@ ALTER TABLE ONLY msgs_msg_labels ALTER COLUMN id SET DEFAULT nextval('msgs_msg_l
 -- Name: id; Type: DEFAULT; Schema: public; Owner: -
 --
 
+ALTER TABLE ONLY msgs_systemlabel ALTER COLUMN id SET DEFAULT nextval('msgs_systemlabel_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
 ALTER TABLE ONLY orgs_creditalert ALTER COLUMN id SET DEFAULT nextval('orgs_creditalert_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_debit ALTER COLUMN id SET DEFAULT nextval('orgs_debit_id_seq'::regclass);
 
 
 --
@@ -4088,6 +5434,13 @@ ALTER TABLE ONLY orgs_org_editors ALTER COLUMN id SET DEFAULT nextval('orgs_org_
 -- Name: id; Type: DEFAULT; Schema: public; Owner: -
 --
 
+ALTER TABLE ONLY orgs_org_surveyors ALTER COLUMN id SET DEFAULT nextval('orgs_org_surveyors_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
 ALTER TABLE ONLY orgs_org_viewers ALTER COLUMN id SET DEFAULT nextval('orgs_org_viewers_id_seq'::regclass);
 
 
@@ -4096,6 +5449,13 @@ ALTER TABLE ONLY orgs_org_viewers ALTER COLUMN id SET DEFAULT nextval('orgs_org_
 --
 
 ALTER TABLE ONLY orgs_topup ALTER COLUMN id SET DEFAULT nextval('orgs_topup_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_topupcredits ALTER COLUMN id SET DEFAULT nextval('orgs_topupcredits_id_seq'::regclass);
 
 
 --
@@ -4190,6 +5550,14 @@ ALTER TABLE ONLY values_value ALTER COLUMN id SET DEFAULT nextval('values_value_
 
 
 --
+-- Name: airtime_airtimetransfer_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY airtime_airtimetransfer
+    ADD CONSTRAINT airtime_airtimetransfer_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: api_apitoken_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -4198,11 +5566,19 @@ ALTER TABLE ONLY api_apitoken
 
 
 --
--- Name: api_apitoken_user_id_5752cf28bea31ac4_uniq; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+-- Name: api_resthook_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
-ALTER TABLE ONLY api_apitoken
-    ADD CONSTRAINT api_apitoken_user_id_5752cf28bea31ac4_uniq UNIQUE (user_id, org_id);
+ALTER TABLE ONLY api_resthook
+    ADD CONSTRAINT api_resthook_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: api_resthooksubscriber_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY api_resthooksubscriber
+    ADD CONSTRAINT api_resthooksubscriber_pkey PRIMARY KEY (id);
 
 
 --
@@ -4438,6 +5814,30 @@ ALTER TABLE ONLY channels_channel
 
 
 --
+-- Name: channels_channel_uuid_3f1c42234e8f4a30_uniq; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY channels_channel
+    ADD CONSTRAINT channels_channel_uuid_3f1c42234e8f4a30_uniq UNIQUE (uuid);
+
+
+--
+-- Name: channels_channelcount_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY channels_channelcount
+    ADD CONSTRAINT channels_channelcount_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: channels_channelevent_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY channels_channelevent
+    ADD CONSTRAINT channels_channelevent_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: channels_channellog_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -4523,6 +5923,14 @@ ALTER TABLE ONLY contacts_contactgroup_query_fields
 
 ALTER TABLE ONLY contacts_contactgroup
     ADD CONSTRAINT contacts_contactgroup_uuid_key UNIQUE (uuid);
+
+
+--
+-- Name: contacts_contactgroupcount_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY contacts_contactgroupcount
+    ADD CONSTRAINT contacts_contactgroupcount_pkey PRIMARY KEY (id);
 
 
 --
@@ -4822,11 +6230,27 @@ ALTER TABLE ONLY flows_flowlabel
 
 
 --
+-- Name: flows_flowlabel_uuid_key; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY flows_flowlabel
+    ADD CONSTRAINT flows_flowlabel_uuid_key UNIQUE (uuid);
+
+
+--
 -- Name: flows_flowrun_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
 ALTER TABLE ONLY flows_flowrun
     ADD CONSTRAINT flows_flowrun_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: flows_flowruncount_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY flows_flowruncount
+    ADD CONSTRAINT flows_flowruncount_pkey PRIMARY KEY (id);
 
 
 --
@@ -4870,6 +6294,22 @@ ALTER TABLE ONLY flows_flowstart
 
 
 --
+-- Name: flows_flowstep_broadcasts_flowstep_id_broadcast_id_key; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY flows_flowstep_broadcasts
+    ADD CONSTRAINT flows_flowstep_broadcasts_flowstep_id_broadcast_id_key UNIQUE (flowstep_id, broadcast_id);
+
+
+--
+-- Name: flows_flowstep_broadcasts_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY flows_flowstep_broadcasts
+    ADD CONSTRAINT flows_flowstep_broadcasts_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: flows_flowstep_messages_flowstep_id_1c16da1df33fadce_uniq; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -4897,7 +6337,7 @@ ALTER TABLE ONLY flows_flowstep
 -- Name: flows_flowversion_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
-ALTER TABLE ONLY flows_flowversion
+ALTER TABLE ONLY flows_flowrevision
     ADD CONSTRAINT flows_flowversion_pkey PRIMARY KEY (id);
 
 
@@ -5022,6 +6462,22 @@ ALTER TABLE ONLY msgs_broadcast
 
 
 --
+-- Name: msgs_broadcast_recipients_broadcast_id_contact_id_key; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY msgs_broadcast_recipients
+    ADD CONSTRAINT msgs_broadcast_recipients_broadcast_id_contact_id_key UNIQUE (broadcast_id, contact_id);
+
+
+--
+-- Name: msgs_broadcast_recipients_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY msgs_broadcast_recipients
+    ADD CONSTRAINT msgs_broadcast_recipients_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: msgs_broadcast_schedule_id_key; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -5043,14 +6499,6 @@ ALTER TABLE ONLY msgs_broadcast_urns
 
 ALTER TABLE ONLY msgs_broadcast_urns
     ADD CONSTRAINT msgs_broadcast_urns_pkey PRIMARY KEY (id);
-
-
---
--- Name: msgs_call_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
---
-
-ALTER TABLE ONLY msgs_call
-    ADD CONSTRAINT msgs_call_pkey PRIMARY KEY (id);
 
 
 --
@@ -5126,11 +6574,27 @@ ALTER TABLE ONLY msgs_msg
 
 
 --
+-- Name: msgs_systemlabel_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY msgs_systemlabel
+    ADD CONSTRAINT msgs_systemlabel_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: orgs_creditalert_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
 ALTER TABLE ONLY orgs_creditalert
     ADD CONSTRAINT orgs_creditalert_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: orgs_debit_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY orgs_debit
+    ADD CONSTRAINT orgs_debit_pkey PRIMARY KEY (id);
 
 
 --
@@ -5206,6 +6670,22 @@ ALTER TABLE ONLY orgs_org
 
 
 --
+-- Name: orgs_org_surveyors_org_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY orgs_org_surveyors
+    ADD CONSTRAINT orgs_org_surveyors_org_id_user_id_key UNIQUE (org_id, user_id);
+
+
+--
+-- Name: orgs_org_surveyors_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY orgs_org_surveyors
+    ADD CONSTRAINT orgs_org_surveyors_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: orgs_org_viewers_org_id_64e1939c6c378b34_uniq; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -5227,6 +6707,14 @@ ALTER TABLE ONLY orgs_org_viewers
 
 ALTER TABLE ONLY orgs_topup
     ADD CONSTRAINT orgs_topup_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: orgs_topupcredits_pkey; Type: CONSTRAINT; Schema: public; Owner: -; Tablespace: 
+--
+
+ALTER TABLE ONLY orgs_topupcredits
+    ADD CONSTRAINT orgs_topupcredits_pkey PRIMARY KEY (id);
 
 
 --
@@ -5382,6 +6870,48 @@ ALTER TABLE ONLY values_value
 
 
 --
+-- Name: airtime_airtimetransfer_6d82f13d; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX airtime_airtimetransfer_6d82f13d ON airtime_airtimetransfer USING btree (contact_id);
+
+
+--
+-- Name: airtime_airtimetransfer_72eb6c85; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX airtime_airtimetransfer_72eb6c85 ON airtime_airtimetransfer USING btree (channel_id);
+
+
+--
+-- Name: airtime_airtimetransfer_9cf869aa; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX airtime_airtimetransfer_9cf869aa ON airtime_airtimetransfer USING btree (org_id);
+
+
+--
+-- Name: airtime_airtimetransfer_b3da0983; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX airtime_airtimetransfer_b3da0983 ON airtime_airtimetransfer USING btree (modified_by_id);
+
+
+--
+-- Name: airtime_airtimetransfer_e93cb7eb; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX airtime_airtimetransfer_e93cb7eb ON airtime_airtimetransfer USING btree (created_by_id);
+
+
+--
+-- Name: api_apitoken_84566833; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_apitoken_84566833 ON api_apitoken USING btree (role_id);
+
+
+--
 -- Name: api_apitoken_key_like; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -5400,6 +6930,69 @@ CREATE INDEX api_apitoken_org_id ON api_apitoken USING btree (org_id);
 --
 
 CREATE INDEX api_apitoken_user_id ON api_apitoken USING btree (user_id);
+
+
+--
+-- Name: api_resthook_2dbcba41; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_resthook_2dbcba41 ON api_resthook USING btree (slug);
+
+
+--
+-- Name: api_resthook_9cf869aa; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_resthook_9cf869aa ON api_resthook USING btree (org_id);
+
+
+--
+-- Name: api_resthook_b3da0983; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_resthook_b3da0983 ON api_resthook USING btree (modified_by_id);
+
+
+--
+-- Name: api_resthook_e93cb7eb; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_resthook_e93cb7eb ON api_resthook USING btree (created_by_id);
+
+
+--
+-- Name: api_resthook_slug_379cf9d345a69ce0_like; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_resthook_slug_379cf9d345a69ce0_like ON api_resthook USING btree (slug varchar_pattern_ops);
+
+
+--
+-- Name: api_resthooksubscriber_1bce5203; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_resthooksubscriber_1bce5203 ON api_resthooksubscriber USING btree (resthook_id);
+
+
+--
+-- Name: api_resthooksubscriber_b3da0983; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_resthooksubscriber_b3da0983 ON api_resthooksubscriber USING btree (modified_by_id);
+
+
+--
+-- Name: api_resthooksubscriber_e93cb7eb; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_resthooksubscriber_e93cb7eb ON api_resthooksubscriber USING btree (created_by_id);
+
+
+--
+-- Name: api_webhookevent_1bce5203; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX api_webhookevent_1bce5203 ON api_webhookevent USING btree (resthook_id);
 
 
 --
@@ -5648,6 +7241,76 @@ CREATE INDEX channels_channel_uuid ON channels_channel USING btree (uuid);
 
 
 --
+-- Name: channels_channelcount_72eb6c85; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channelcount_72eb6c85 ON channels_channelcount USING btree (channel_id);
+
+
+--
+-- Name: channels_channelcount_channel_id_5208cb05651eead_idx; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channelcount_channel_id_5208cb05651eead_idx ON channels_channelcount USING btree (channel_id, count_type, day);
+
+
+--
+-- Name: channels_channelevent_6d82f13d; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channelevent_6d82f13d ON channels_channelevent USING btree (contact_id);
+
+
+--
+-- Name: channels_channelevent_72eb6c85; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channelevent_72eb6c85 ON channels_channelevent USING btree (channel_id);
+
+
+--
+-- Name: channels_channelevent_842dde28; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channelevent_842dde28 ON channels_channelevent USING btree (contact_urn_id);
+
+
+--
+-- Name: channels_channelevent_9cf869aa; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channelevent_9cf869aa ON channels_channelevent USING btree (org_id);
+
+
+--
+-- Name: channels_channelevent_api_view; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channelevent_api_view ON channels_channelevent USING btree (org_id, created_on DESC, id DESC) WHERE (is_active = true);
+
+
+--
+-- Name: channels_channelevent_calls_view; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channelevent_calls_view ON channels_channelevent USING btree (org_id, "time" DESC) WHERE ((is_active = true) AND ((event_type)::text = ANY (ARRAY[('mt_call'::character varying)::text, ('mt_miss'::character varying)::text, ('mo_call'::character varying)::text, ('mo_miss'::character varying)::text])));
+
+
+--
+-- Name: channels_channellog_72eb6c85; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channellog_72eb6c85 ON channels_channellog USING btree (channel_id);
+
+
+--
+-- Name: channels_channellog_channel_created_on; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX channels_channellog_channel_created_on ON channels_channellog USING btree (channel_id, created_on DESC);
+
+
+--
 -- Name: channels_channellog_msgs_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -5694,6 +7357,34 @@ CREATE INDEX contacts_contact_modified_by_id ON contacts_contact USING btree (mo
 --
 
 CREATE INDEX contacts_contact_org_id ON contacts_contact USING btree (org_id);
+
+
+--
+-- Name: contacts_contact_org_modified_id_where_nontest_active; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX contacts_contact_org_modified_id_where_nontest_active ON contacts_contact USING btree (org_id, modified_on DESC, id DESC) WHERE ((is_test = false) AND (is_active = true));
+
+
+--
+-- Name: contacts_contact_org_modified_id_where_nontest_inactive; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX contacts_contact_org_modified_id_where_nontest_inactive ON contacts_contact USING btree (org_id, modified_on DESC, id DESC) WHERE ((is_test = false) AND (is_active = false));
+
+
+--
+-- Name: contacts_contactfield_b3da0983; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX contacts_contactfield_b3da0983 ON contacts_contactfield USING btree (modified_by_id);
+
+
+--
+-- Name: contacts_contactfield_e93cb7eb; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX contacts_contactfield_e93cb7eb ON contacts_contactfield USING btree (created_by_id);
 
 
 --
@@ -5757,6 +7448,13 @@ CREATE INDEX contacts_contactgroup_query_fields_contactfield_id ON contacts_cont
 --
 
 CREATE INDEX contacts_contactgroup_query_fields_contactgroup_id ON contacts_contactgroup_query_fields USING btree (contactgroup_id);
+
+
+--
+-- Name: contacts_contactgroupcount_0e939a4f; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX contacts_contactgroupcount_0e939a4f ON contacts_contactgroupcount USING btree (group_id);
 
 
 --
@@ -6110,6 +7808,20 @@ CREATE INDEX flows_flowlabel_parent_id ON flows_flowlabel USING btree (parent_id
 
 
 --
+-- Name: flows_flowrun_31174c9a; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_31174c9a ON flows_flowrun USING btree (submitted_by_id);
+
+
+--
+-- Name: flows_flowrun_6be37982; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_6be37982 ON flows_flowrun USING btree (parent_id);
+
+
+--
 -- Name: flows_flowrun_call_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -6124,6 +7836,13 @@ CREATE INDEX flows_flowrun_contact_id ON flows_flowrun USING btree (contact_id);
 
 
 --
+-- Name: flows_flowrun_expires_on; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_expires_on ON flows_flowrun USING btree (expires_on) WHERE (is_active = true);
+
+
+--
 -- Name: flows_flowrun_flow_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -6131,10 +7850,73 @@ CREATE INDEX flows_flowrun_flow_id ON flows_flowrun USING btree (flow_id);
 
 
 --
+-- Name: flows_flowrun_flow_modified_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_flow_modified_id ON flows_flowrun USING btree (flow_id, modified_on DESC, id DESC);
+
+
+--
+-- Name: flows_flowrun_flow_modified_id_where_responded; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_flow_modified_id_where_responded ON flows_flowrun USING btree (flow_id, modified_on DESC, id DESC) WHERE (responded = true);
+
+
+--
+-- Name: flows_flowrun_null_expired_on; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_null_expired_on ON flows_flowrun USING btree (exited_on) WHERE (exited_on IS NULL);
+
+
+--
+-- Name: flows_flowrun_org_modified_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_org_modified_id ON flows_flowrun USING btree (org_id, modified_on DESC, id DESC);
+
+
+--
+-- Name: flows_flowrun_org_modified_id_where_responded; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_org_modified_id_where_responded ON flows_flowrun USING btree (org_id, modified_on DESC, id DESC) WHERE (responded = true);
+
+
+--
+-- Name: flows_flowrun_parent_created_on_not_null; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_parent_created_on_not_null ON flows_flowrun USING btree (parent_id, created_on DESC) WHERE (parent_id IS NOT NULL);
+
+
+--
 -- Name: flows_flowrun_start_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
 CREATE INDEX flows_flowrun_start_id ON flows_flowrun USING btree (start_id);
+
+
+--
+-- Name: flows_flowrun_timeout_active; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowrun_timeout_active ON flows_flowrun USING btree (timeout_on) WHERE ((is_active = true) AND (timeout_on IS NOT NULL));
+
+
+--
+-- Name: flows_flowruncount_7f26ac5b; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowruncount_7f26ac5b ON flows_flowruncount USING btree (flow_id);
+
+
+--
+-- Name: flows_flowruncount_flow_id_672172dc2c109703_idx; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowruncount_flow_id_672172dc2c109703_idx ON flows_flowruncount USING btree (flow_id, exit_type);
 
 
 --
@@ -6184,6 +7966,20 @@ CREATE INDEX flows_flowstart_groups_flowstart_id ON flows_flowstart_groups USING
 --
 
 CREATE INDEX flows_flowstart_modified_by_id ON flows_flowstart USING btree (modified_by_id);
+
+
+--
+-- Name: flows_flowstep_broadcasts_b0cb7d59; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowstep_broadcasts_b0cb7d59 ON flows_flowstep_broadcasts USING btree (broadcast_id);
+
+
+--
+-- Name: flows_flowstep_broadcasts_c01a422b; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX flows_flowstep_broadcasts_c01a422b ON flows_flowstep_broadcasts USING btree (flowstep_id);
 
 
 --
@@ -6246,21 +8042,21 @@ CREATE INDEX flows_flowstep_step_uuid ON flows_flowstep USING btree (step_uuid);
 -- Name: flows_flowversion_created_by_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
-CREATE INDEX flows_flowversion_created_by_id ON flows_flowversion USING btree (created_by_id);
+CREATE INDEX flows_flowversion_created_by_id ON flows_flowrevision USING btree (created_by_id);
 
 
 --
 -- Name: flows_flowversion_flow_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
-CREATE INDEX flows_flowversion_flow_id ON flows_flowversion USING btree (flow_id);
+CREATE INDEX flows_flowversion_flow_id ON flows_flowrevision USING btree (flow_id);
 
 
 --
 -- Name: flows_flowversion_modified_by_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
-CREATE INDEX flows_flowversion_modified_by_id ON flows_flowversion USING btree (modified_by_id);
+CREATE INDEX flows_flowversion_modified_by_id ON flows_flowrevision USING btree (modified_by_id);
 
 
 --
@@ -6320,6 +8116,13 @@ CREATE INDEX guardian_userobjectpermission_user_id ON guardian_userobjectpermiss
 
 
 --
+-- Name: ivr_ivrcall_6be37982; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX ivr_ivrcall_6be37982 ON ivr_ivrcall USING btree (parent_id);
+
+
+--
 -- Name: ivr_ivrcall_842dde28; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -6366,6 +8169,27 @@ CREATE INDEX ivr_ivrcall_org_id ON ivr_ivrcall USING btree (org_id);
 --
 
 CREATE INDEX ivr_ivrcall_relayer_id ON ivr_ivrcall USING btree (channel_id);
+
+
+--
+-- Name: locations_adminboundary_3cfbd988; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX locations_adminboundary_3cfbd988 ON locations_adminboundary USING btree (rght);
+
+
+--
+-- Name: locations_adminboundary_656442a0; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX locations_adminboundary_656442a0 ON locations_adminboundary USING btree (tree_id);
+
+
+--
+-- Name: locations_adminboundary_caf7cc51; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX locations_adminboundary_caf7cc51 ON locations_adminboundary USING btree (lft);
 
 
 --
@@ -6422,13 +8246,6 @@ CREATE INDEX locations_boundaryalias_modified_by_id ON locations_boundaryalias U
 --
 
 CREATE INDEX locations_boundaryalias_org_id ON locations_boundaryalias USING btree (org_id);
-
-
---
--- Name: msg_visibility_direction_type_created_inbound; Type: INDEX; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE INDEX msg_visibility_direction_type_created_inbound ON msgs_msg USING btree (org_id, visibility, direction, msg_type, created_on DESC) WHERE ((direction)::text = 'I'::text);
 
 
 --
@@ -6502,6 +8319,20 @@ CREATE INDEX msgs_broadcast_parent_id ON msgs_broadcast USING btree (parent_id);
 
 
 --
+-- Name: msgs_broadcast_recipients_6d82f13d; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX msgs_broadcast_recipients_6d82f13d ON msgs_broadcast_recipients USING btree (contact_id);
+
+
+--
+-- Name: msgs_broadcast_recipients_b0cb7d59; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX msgs_broadcast_recipients_b0cb7d59 ON msgs_broadcast_recipients USING btree (broadcast_id);
+
+
+--
 -- Name: msgs_broadcast_urns_broadcast_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -6516,38 +8347,10 @@ CREATE INDEX msgs_broadcast_urns_contacturn_id ON msgs_broadcast_urns USING btre
 
 
 --
--- Name: msgs_call_channel_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+-- Name: msgs_broadcasts_org_created_id_where_active; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
-CREATE INDEX msgs_call_channel_id ON msgs_call USING btree (channel_id);
-
-
---
--- Name: msgs_call_contact_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE INDEX msgs_call_contact_id ON msgs_call USING btree (contact_id);
-
-
---
--- Name: msgs_call_created_by_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE INDEX msgs_call_created_by_id ON msgs_call USING btree (created_by_id);
-
-
---
--- Name: msgs_call_modified_by_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE INDEX msgs_call_modified_by_id ON msgs_call USING btree (modified_by_id);
-
-
---
--- Name: msgs_call_org_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
---
-
-CREATE INDEX msgs_call_org_id ON msgs_call USING btree (org_id);
+CREATE INDEX msgs_broadcasts_org_created_id_where_active ON msgs_broadcast USING btree (org_id, created_on DESC, id DESC) WHERE (is_active = true);
 
 
 --
@@ -6677,10 +8480,24 @@ CREATE INDEX msgs_msg_labels_msgs_id ON msgs_msg_labels USING btree (msg_id);
 
 
 --
--- Name: msgs_msg_org_failed_created_on; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+-- Name: msgs_msg_org_created_id_where_outbound_visible_failed; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
-CREATE INDEX msgs_msg_org_failed_created_on ON msgs_msg USING btree (org_id, direction, visibility, created_on DESC) WHERE ((status)::text = 'F'::text);
+CREATE INDEX msgs_msg_org_created_id_where_outbound_visible_failed ON msgs_msg USING btree (org_id, created_on DESC, id DESC) WHERE ((((direction)::text = 'O'::text) AND ((visibility)::text = 'V'::text)) AND ((status)::text = 'F'::text));
+
+
+--
+-- Name: msgs_msg_org_created_id_where_outbound_visible_outbox; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX msgs_msg_org_created_id_where_outbound_visible_outbox ON msgs_msg USING btree (org_id, created_on DESC, id DESC) WHERE ((((direction)::text = 'O'::text) AND ((visibility)::text = 'V'::text)) AND ((status)::text = ANY ((ARRAY['P'::character varying, 'Q'::character varying])::text[])));
+
+
+--
+-- Name: msgs_msg_org_created_id_where_outbound_visible_sent; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX msgs_msg_org_created_id_where_outbound_visible_sent ON msgs_msg USING btree (org_id, created_on DESC, id DESC) WHERE ((((direction)::text = 'O'::text) AND ((visibility)::text = 'V'::text)) AND ((status)::text = ANY ((ARRAY['W'::character varying, 'S'::character varying, 'D'::character varying])::text[])));
 
 
 --
@@ -6691,10 +8508,17 @@ CREATE INDEX msgs_msg_org_id ON msgs_msg USING btree (org_id);
 
 
 --
--- Name: msgs_msg_response_to_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+-- Name: msgs_msg_org_modified_id_where_inbound; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
-CREATE INDEX msgs_msg_response_to_id ON msgs_msg USING btree (response_to_id);
+CREATE INDEX msgs_msg_org_modified_id_where_inbound ON msgs_msg USING btree (org_id, modified_on DESC, id DESC) WHERE ((direction)::text = 'I'::text);
+
+
+--
+-- Name: msgs_msg_responded_to_not_null; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX msgs_msg_responded_to_not_null ON msgs_msg USING btree (response_to_id) WHERE (response_to_id IS NOT NULL);
 
 
 --
@@ -6719,6 +8543,34 @@ CREATE INDEX msgs_msg_visibility ON msgs_msg USING btree (visibility);
 
 
 --
+-- Name: msgs_msg_visibility_type_created_id_where_inbound; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX msgs_msg_visibility_type_created_id_where_inbound ON msgs_msg USING btree (org_id, visibility, msg_type, created_on DESC, id DESC) WHERE ((direction)::text = 'I'::text);
+
+
+--
+-- Name: msgs_systemlabel_9cf869aa; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX msgs_systemlabel_9cf869aa ON msgs_systemlabel USING btree (org_id);
+
+
+--
+-- Name: msgs_systemlabel_org_id_4994c8dcf3c744e3_idx; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX msgs_systemlabel_org_id_4994c8dcf3c744e3_idx ON msgs_systemlabel USING btree (org_id, label_type);
+
+
+--
+-- Name: org_test_contacts; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX org_test_contacts ON contacts_contact USING btree (org_id) WHERE (is_test = true);
+
+
+--
 -- Name: orgs_creditalert_created_by_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -6737,6 +8589,27 @@ CREATE INDEX orgs_creditalert_modified_by_id ON orgs_creditalert USING btree (mo
 --
 
 CREATE INDEX orgs_creditalert_org_id ON orgs_creditalert USING btree (org_id);
+
+
+--
+-- Name: orgs_debit_9e459dc4; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX orgs_debit_9e459dc4 ON orgs_debit USING btree (beneficiary_id);
+
+
+--
+-- Name: orgs_debit_a5d9fd84; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX orgs_debit_a5d9fd84 ON orgs_debit USING btree (topup_id);
+
+
+--
+-- Name: orgs_debit_e93cb7eb; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX orgs_debit_e93cb7eb ON orgs_debit USING btree (created_by_id);
 
 
 --
@@ -6786,6 +8659,13 @@ CREATE INDEX orgs_language_modified_by_id ON orgs_language USING btree (modified
 --
 
 CREATE INDEX orgs_language_org_id ON orgs_language USING btree (org_id);
+
+
+--
+-- Name: orgs_org_6be37982; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX orgs_org_6be37982 ON orgs_org USING btree (parent_id);
 
 
 --
@@ -6859,6 +8739,20 @@ CREATE INDEX orgs_org_slug_like ON orgs_org USING btree (slug varchar_pattern_op
 
 
 --
+-- Name: orgs_org_surveyors_9cf869aa; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX orgs_org_surveyors_9cf869aa ON orgs_org_surveyors USING btree (org_id);
+
+
+--
+-- Name: orgs_org_surveyors_e8701ad4; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX orgs_org_surveyors_e8701ad4 ON orgs_org_surveyors USING btree (user_id);
+
+
+--
 -- Name: orgs_org_viewers_org_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -6891,6 +8785,13 @@ CREATE INDEX orgs_topup_modified_by_id ON orgs_topup USING btree (modified_by_id
 --
 
 CREATE INDEX orgs_topup_org_id ON orgs_topup USING btree (org_id);
+
+
+--
+-- Name: orgs_topupcredits_a5d9fd84; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX orgs_topupcredits_a5d9fd84 ON orgs_topupcredits USING btree (topup_id);
 
 
 --
@@ -7034,6 +8935,13 @@ CREATE INDEX values_value_contact_field_id ON values_value USING btree (contact_
 
 
 --
+-- Name: values_value_contact_field_location_not_null; Type: INDEX; Schema: public; Owner: -; Tablespace: 
+--
+
+CREATE INDEX values_value_contact_field_location_not_null ON values_value USING btree (contact_field_id, location_value_id) WHERE ((contact_field_id IS NOT NULL) AND (location_value_id IS NOT NULL));
+
+
+--
 -- Name: values_value_contact_id; Type: INDEX; Schema: public; Owner: -; Tablespace: 
 --
 
@@ -7079,7 +8987,119 @@ CREATE INDEX values_value_run_id ON values_value USING btree (run_id);
 -- Name: contact_check_update_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER contact_check_update_trg BEFORE UPDATE ON contacts_contact FOR EACH ROW EXECUTE PROCEDURE contact_check_update();
+CREATE TRIGGER contact_check_update_trg BEFORE UPDATE OF is_test, is_blocked, is_stopped ON contacts_contact FOR EACH ROW EXECUTE PROCEDURE contact_check_update();
+
+
+--
+-- Name: temba_broadcast_on_change_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_broadcast_on_change_trg AFTER INSERT OR DELETE OR UPDATE ON msgs_broadcast FOR EACH ROW EXECUTE PROCEDURE temba_broadcast_on_change();
+
+
+--
+-- Name: temba_broadcast_on_truncate_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_broadcast_on_truncate_trg AFTER TRUNCATE ON msgs_broadcast FOR EACH STATEMENT EXECUTE PROCEDURE temba_broadcast_on_change();
+
+
+--
+-- Name: temba_channelevent_on_change_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_channelevent_on_change_trg AFTER INSERT OR DELETE OR UPDATE ON channels_channelevent FOR EACH ROW EXECUTE PROCEDURE temba_channelevent_on_change();
+
+
+--
+-- Name: temba_channelevent_on_truncate_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_channelevent_on_truncate_trg AFTER TRUNCATE ON channels_channelevent FOR EACH STATEMENT EXECUTE PROCEDURE temba_channelevent_on_change();
+
+
+--
+-- Name: temba_channellog_truncate_channelcount; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_channellog_truncate_channelcount AFTER TRUNCATE ON channels_channellog FOR EACH STATEMENT EXECUTE PROCEDURE temba_update_channellog_count();
+
+
+--
+-- Name: temba_channellog_update_channelcount; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_channellog_update_channelcount AFTER INSERT OR DELETE OR UPDATE OF is_error, channel_id ON channels_channellog FOR EACH ROW EXECUTE PROCEDURE temba_update_channellog_count();
+
+
+--
+-- Name: temba_flowrun_truncate_flowruncount; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_flowrun_truncate_flowruncount AFTER TRUNCATE ON flows_flowrun FOR EACH STATEMENT EXECUTE PROCEDURE temba_update_flowruncount();
+
+
+--
+-- Name: temba_flowrun_update_flowruncount; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_flowrun_update_flowruncount AFTER INSERT OR DELETE OR UPDATE OF exit_type ON flows_flowrun FOR EACH ROW EXECUTE PROCEDURE temba_update_flowruncount();
+
+
+--
+-- Name: temba_msg_clear_channelcount; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_msg_clear_channelcount AFTER TRUNCATE ON msgs_msg FOR EACH STATEMENT EXECUTE PROCEDURE temba_update_channelcount();
+
+
+--
+-- Name: temba_msg_labels_on_change_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_msg_labels_on_change_trg AFTER INSERT OR DELETE ON msgs_msg_labels FOR EACH ROW EXECUTE PROCEDURE temba_msg_labels_on_change();
+
+
+--
+-- Name: temba_msg_labels_on_truncate_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_msg_labels_on_truncate_trg AFTER TRUNCATE ON msgs_msg_labels FOR EACH STATEMENT EXECUTE PROCEDURE temba_msg_labels_on_change();
+
+
+--
+-- Name: temba_msg_on_change_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_msg_on_change_trg AFTER INSERT OR DELETE OR UPDATE ON msgs_msg FOR EACH ROW EXECUTE PROCEDURE temba_msg_on_change();
+
+
+--
+-- Name: temba_msg_on_truncate_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_msg_on_truncate_trg AFTER TRUNCATE ON msgs_msg FOR EACH STATEMENT EXECUTE PROCEDURE temba_msg_on_change();
+
+
+--
+-- Name: temba_msg_update_channelcount; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_msg_update_channelcount AFTER INSERT OR DELETE OR UPDATE OF direction, msg_type, created_on ON msgs_msg FOR EACH ROW EXECUTE PROCEDURE temba_update_channelcount();
+
+
+--
+-- Name: temba_when_debit_update_then_update_topupcredits_for_debit; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_when_debit_update_then_update_topupcredits_for_debit AFTER INSERT OR DELETE OR UPDATE OF topup_id ON orgs_debit FOR EACH ROW EXECUTE PROCEDURE temba_update_topupcredits_for_debit();
+
+
+--
+-- Name: temba_when_msgs_update_then_update_topupcredits; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER temba_when_msgs_update_then_update_topupcredits AFTER INSERT OR DELETE OR UPDATE OF topup_id ON msgs_msg FOR EACH ROW EXECUTE PROCEDURE temba_update_topupcredits();
 
 
 --
@@ -7104,38 +9124,107 @@ CREATE TRIGGER when_contacts_changed_then_update_groups_trg AFTER INSERT OR UPDA
 
 
 --
--- Name: when_label_inserted_or_deleted_then_update_count_trg; Type: TRIGGER; Schema: public; Owner: -
+-- Name: airtime_airt_channel_id_1272e1f1ed85eba9_fk_channels_channel_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-CREATE TRIGGER when_label_inserted_or_deleted_then_update_count_trg AFTER INSERT OR DELETE ON msgs_msg_labels FOR EACH ROW EXECUTE PROCEDURE update_label_count();
-
-
---
--- Name: when_labels_truncated_then_update_count_trg; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER when_labels_truncated_then_update_count_trg AFTER TRUNCATE ON msgs_msg_labels FOR EACH STATEMENT EXECUTE PROCEDURE update_label_count();
+ALTER TABLE ONLY airtime_airtimetransfer
+    ADD CONSTRAINT airtime_airt_channel_id_1272e1f1ed85eba9_fk_channels_channel_id FOREIGN KEY (channel_id) REFERENCES channels_channel(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
--- Name: when_msg_updated_then_update_label_counts_trg; Type: TRIGGER; Schema: public; Owner: -
+-- Name: airtime_airt_contact_id_250eab5116e60982_fk_contacts_contact_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-CREATE TRIGGER when_msg_updated_then_update_label_counts_trg AFTER UPDATE OF visibility ON msgs_msg FOR EACH ROW EXECUTE PROCEDURE update_msg_user_label_counts();
-
-
---
--- Name: when_msgs_truncate_then_update_topup_trg; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER when_msgs_truncate_then_update_topup_trg AFTER TRUNCATE ON msgs_msg FOR EACH STATEMENT EXECUTE PROCEDURE update_topup_used();
+ALTER TABLE ONLY airtime_airtimetransfer
+    ADD CONSTRAINT airtime_airt_contact_id_250eab5116e60982_fk_contacts_contact_id FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
--- Name: when_msgs_update_then_update_topup_trg; Type: TRIGGER; Schema: public; Owner: -
+-- Name: airtime_airtime_modified_by_id_16c622283b11c25d_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-CREATE TRIGGER when_msgs_update_then_update_topup_trg AFTER INSERT OR DELETE OR UPDATE OF topup_id ON msgs_msg FOR EACH ROW EXECUTE PROCEDURE update_topup_used();
+ALTER TABLE ONLY airtime_airtimetransfer
+    ADD CONSTRAINT airtime_airtime_modified_by_id_16c622283b11c25d_fk_auth_user_id FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: airtime_airtimetr_created_by_id_21ab1d1a8870811_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY airtime_airtimetransfer
+    ADD CONSTRAINT airtime_airtimetr_created_by_id_21ab1d1a8870811_fk_auth_user_id FOREIGN KEY (created_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: airtime_airtimetransfer_org_id_4e1a6aa1acde74e8_fk_orgs_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY airtime_airtimetransfer
+    ADD CONSTRAINT airtime_airtimetransfer_org_id_4e1a6aa1acde74e8_fk_orgs_org_id FOREIGN KEY (org_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: api_apitoken_role_id_188c52029956748a_fk_auth_group_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_apitoken
+    ADD CONSTRAINT api_apitoken_role_id_188c52029956748a_fk_auth_group_id FOREIGN KEY (role_id) REFERENCES auth_group(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: api_resthook_created_by_id_6220b3ddf5830c4c_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_resthook
+    ADD CONSTRAINT api_resthook_created_by_id_6220b3ddf5830c4c_fk_auth_user_id FOREIGN KEY (created_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: api_resthook_modified_by_id_2b667c3abf7a99d2_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_resthook
+    ADD CONSTRAINT api_resthook_modified_by_id_2b667c3abf7a99d2_fk_auth_user_id FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: api_resthook_org_id_300c29b14b5c6d73_fk_orgs_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_resthook
+    ADD CONSTRAINT api_resthook_org_id_300c29b14b5c6d73_fk_orgs_org_id FOREIGN KEY (org_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: api_resthooksub_modified_by_id_7de149218c63fdd2_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_resthooksubscriber
+    ADD CONSTRAINT api_resthooksub_modified_by_id_7de149218c63fdd2_fk_auth_user_id FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: api_resthooksub_resthook_id_147507b1af1fbbbd_fk_api_resthook_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_resthooksubscriber
+    ADD CONSTRAINT api_resthooksub_resthook_id_147507b1af1fbbbd_fk_api_resthook_id FOREIGN KEY (resthook_id) REFERENCES api_resthook(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: api_resthooksubsc_created_by_id_318e6a2547877b4_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_resthooksubscriber
+    ADD CONSTRAINT api_resthooksubsc_created_by_id_318e6a2547877b4_fk_auth_user_id FOREIGN KEY (created_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: api_webhookeven_resthook_id_2486720b0ca5c549_fk_api_resthook_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY api_webhookevent
+    ADD CONSTRAINT api_webhookeven_resthook_id_2486720b0ca5c549_fk_api_resthook_id FOREIGN KEY (resthook_id) REFERENCES api_resthook(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -7163,6 +9252,22 @@ ALTER TABLE ONLY auth_user_user_permissions
 
 
 --
+-- Name: authtoken_token_user_id_1d10c57f535fb363_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY authtoken_token
+    ADD CONSTRAINT authtoken_token_user_id_1d10c57f535fb363_fk_auth_user_id FOREIGN KEY (user_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: b596316b4c8d5e8b1a642695f578a459; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_exportmessagestask_groups
+    ADD CONSTRAINT b596316b4c8d5e8b1a642695f578a459 FOREIGN KEY (exportmessagestask_id) REFERENCES msgs_exportmessagestask(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
 -- Name: boundary_id_refs_id_062fa703; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7171,35 +9276,11 @@ ALTER TABLE ONLY locations_boundaryalias
 
 
 --
--- Name: broadcast_id_refs_id_13be1a0f4ee207d5; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_broadcast_groups
-    ADD CONSTRAINT broadcast_id_refs_id_13be1a0f4ee207d5 FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: broadcast_id_refs_id_1bbfd8e1ec515cd5; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY msgs_msg
     ADD CONSTRAINT broadcast_id_refs_id_1bbfd8e1ec515cd5 FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: broadcast_id_refs_id_7462bf3acc906426; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_broadcast_contacts
-    ADD CONSTRAINT broadcast_id_refs_id_7462bf3acc906426 FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: broadcast_id_refs_id_c7953a11; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_broadcast_urns
-    ADD CONSTRAINT broadcast_id_refs_id_c7953a11 FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -7216,6 +9297,62 @@ ALTER TABLE ONLY flows_flowrun
 
 ALTER TABLE ONLY campaigns_campaignevent
     ADD CONSTRAINT campaign_id_refs_id_5ef97c1b243bb46a FOREIGN KEY (campaign_id) REFERENCES campaigns_campaign(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: chann_contact_urn_id_52291c86d5d55d20_fk_contacts_contacturn_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY channels_channelevent
+    ADD CONSTRAINT chann_contact_urn_id_52291c86d5d55d20_fk_contacts_contacturn_id FOREIGN KEY (contact_urn_id) REFERENCES contacts_contacturn(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: channels_cha_channel_id_32f3daba17d33713_fk_channels_channel_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY channels_channellog
+    ADD CONSTRAINT channels_cha_channel_id_32f3daba17d33713_fk_channels_channel_id FOREIGN KEY (channel_id) REFERENCES channels_channel(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: channels_cha_channel_id_669c3868d324fc54_fk_channels_channel_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY channels_channelcount
+    ADD CONSTRAINT channels_cha_channel_id_669c3868d324fc54_fk_channels_channel_id FOREIGN KEY (channel_id) REFERENCES channels_channel(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: channels_chan_channel_id_f1cda903792d423_fk_channels_channel_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY channels_channelevent
+    ADD CONSTRAINT channels_chan_channel_id_f1cda903792d423_fk_channels_channel_id FOREIGN KEY (channel_id) REFERENCES channels_channel(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: channels_chan_contact_id_a0a695a8aa5b0fc_fk_contacts_contact_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY channels_channelevent
+    ADD CONSTRAINT channels_chan_contact_id_a0a695a8aa5b0fc_fk_contacts_contact_id FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: channels_channelevent_org_id_186321dcaa6041aa_fk_orgs_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY channels_channelevent
+    ADD CONSTRAINT channels_channelevent_org_id_186321dcaa6041aa_fk_orgs_org_id FOREIGN KEY (org_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: channels_channellog_msg_id_56c592be3741615b_fk_msgs_msg_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY channels_channellog
+    ADD CONSTRAINT channels_channellog_msg_id_56c592be3741615b_fk_msgs_msg_id FOREIGN KEY (msg_id) REFERENCES msgs_msg(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -7243,43 +9380,11 @@ ALTER TABLE ONLY campaigns_eventfire
 
 
 --
--- Name: contact_id_refs_id_24d6c21dc4c10347; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY flows_flowstart_contacts
-    ADD CONSTRAINT contact_id_refs_id_24d6c21dc4c10347 FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: contact_id_refs_id_284700c8; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY flows_flowstep
     ADD CONSTRAINT contact_id_refs_id_284700c8 FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: contact_id_refs_id_3504f414fb9060a6; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_broadcast_contacts
-    ADD CONSTRAINT contact_id_refs_id_3504f414fb9060a6 FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: contact_id_refs_id_399b7589345b1f53; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_call
-    ADD CONSTRAINT contact_id_refs_id_399b7589345b1f53 FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: contact_id_refs_id_609f248a3c6913eb; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY ivr_ivrcall
-    ADD CONSTRAINT contact_id_refs_id_609f248a3c6913eb FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -7323,43 +9428,11 @@ ALTER TABLE ONLY values_value
 
 
 --
--- Name: contact_urn_id_refs_id_3f13a05a; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_msg
-    ADD CONSTRAINT contact_urn_id_refs_id_3f13a05a FOREIGN KEY (contact_urn_id) REFERENCES contacts_contacturn(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: contactfield_id_refs_id_eacf313f; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY contacts_contactgroup_query_fields
     ADD CONSTRAINT contactfield_id_refs_id_eacf313f FOREIGN KEY (contactfield_id) REFERENCES contacts_contactfield(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: contactgroup_id_refs_id_14343436daae0938; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY flows_flowstart_groups
-    ADD CONSTRAINT contactgroup_id_refs_id_14343436daae0938 FOREIGN KEY (contactgroup_id) REFERENCES contacts_contactgroup(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: contactgroup_id_refs_id_2e6637e835080d9d; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_broadcast_groups
-    ADD CONSTRAINT contactgroup_id_refs_id_2e6637e835080d9d FOREIGN KEY (contactgroup_id) REFERENCES contacts_contactgroup(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: contactgroup_id_refs_id_5255cfea; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_exportmessagestask_groups
-    ADD CONSTRAINT contactgroup_id_refs_id_5255cfea FOREIGN KEY (contactgroup_id) REFERENCES contacts_contactgroup(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -7379,6 +9452,14 @@ ALTER TABLE ONLY triggers_trigger_groups
 
 
 --
+-- Name: contacts__group_id_5cbb92f01509a25c_fk_contacts_contactgroup_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY contacts_contactgroupcount
+    ADD CONSTRAINT contacts__group_id_5cbb92f01509a25c_fk_contacts_contactgroup_id FOREIGN KEY (group_id) REFERENCES contacts_contactgroup(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
 -- Name: contacts_cont_contact_id_1dee76983891f9e_fk_contacts_contact_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7387,19 +9468,27 @@ ALTER TABLE ONLY contacts_contactgroup_contacts
 
 
 --
+-- Name: contacts_contac_modified_by_id_5559a2382c641817_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY contacts_contactfield
+    ADD CONSTRAINT contacts_contac_modified_by_id_5559a2382c641817_fk_auth_user_id FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: contacts_contact_created_by_id_506117b654516263_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY contacts_contactfield
+    ADD CONSTRAINT contacts_contact_created_by_id_506117b654516263_fk_auth_user_id FOREIGN KEY (created_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
 -- Name: contacts_contactgroup_org_id_4c569ecced215497_fk_orgs_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY contacts_contactgroup
     ADD CONSTRAINT contacts_contactgroup_org_id_4c569ecced215497_fk_orgs_org_id FOREIGN KEY (org_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: contacturn_id_refs_id_024d0fed; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_broadcast_urns
-    ADD CONSTRAINT contacturn_id_refs_id_024d0fed FOREIGN KEY (contacturn_id) REFERENCES contacts_contacturn(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -7531,14 +9620,6 @@ ALTER TABLE ONLY contacts_contact
 
 
 --
--- Name: created_by_id_refs_id_46995b61b9b84e2e; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_call
-    ADD CONSTRAINT created_by_id_refs_id_46995b61b9b84e2e FOREIGN KEY (created_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: created_by_id_refs_id_470c2ab12f360eb3; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7643,14 +9724,6 @@ ALTER TABLE ONLY ivr_ivrcall
 
 
 --
--- Name: created_by_id_refs_id_7d242c12; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY flows_flowversion
-    ADD CONSTRAINT created_by_id_refs_id_7d242c12 FOREIGN KEY (created_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: created_by_id_refs_id_8de76f8914b53e2; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7739,11 +9812,11 @@ ALTER TABLE ONLY flows_exportflowresultstask_flows
 
 
 --
--- Name: exportsmstask_id_refs_id_6dde0a03; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: fl_contactgroup_id_2c18111554bb3f34_fk_contacts_contactgroup_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY msgs_exportmessagestask_groups
-    ADD CONSTRAINT exportsmstask_id_refs_id_6dde0a03 FOREIGN KEY (exportmessagestask_id) REFERENCES msgs_exportmessagestask(id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE ONLY flows_flowstart_groups
+    ADD CONSTRAINT fl_contactgroup_id_2c18111554bb3f34_fk_contacts_contactgroup_id FOREIGN KEY (contactgroup_id) REFERENCES contacts_contactgroup(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -7787,14 +9860,6 @@ ALTER TABLE ONLY flows_actionset
 
 
 --
--- Name: flow_id_refs_id_6ebba82a1862669; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY triggers_trigger
-    ADD CONSTRAINT flow_id_refs_id_6ebba82a1862669 FOREIGN KEY (flow_id) REFERENCES flows_flow(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: flow_id_refs_id_7fc1316c73377e59; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7819,14 +9884,6 @@ ALTER TABLE ONLY flows_flow_labels
 
 
 --
--- Name: flow_id_refs_id_eec911e8; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY flows_flowversion
-    ADD CONSTRAINT flow_id_refs_id_eec911e8 FOREIGN KEY (flow_id) REFERENCES flows_flow(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: flowlabel_id_refs_id_76fdbb7d; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7843,27 +9900,115 @@ ALTER TABLE ONLY flows_exportflowresultstask
 
 
 --
--- Name: flowstart_id_refs_id_149c72fcc464f547; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: flows_flowrevis_modified_by_id_3c3019c228f64a13_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowrevision
+    ADD CONSTRAINT flows_flowrevis_modified_by_id_3c3019c228f64a13_fk_auth_user_id FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowrevisi_created_by_id_683280e0d8204601_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowrevision
+    ADD CONSTRAINT flows_flowrevisi_created_by_id_683280e0d8204601_fk_auth_user_id FOREIGN KEY (created_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowrevision_flow_id_6f4246181bbdc13_fk_flows_flow_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowrevision
+    ADD CONSTRAINT flows_flowrevision_flow_id_6f4246181bbdc13_fk_flows_flow_id FOREIGN KEY (flow_id) REFERENCES flows_flow(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowrun_org_id_f0cf950009f5989_fk_orgs_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowrun
+    ADD CONSTRAINT flows_flowrun_org_id_f0cf950009f5989_fk_orgs_org_id FOREIGN KEY (org_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowrun_parent_id_231ec37d09dd4f48_fk_flows_flowrun_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowrun
+    ADD CONSTRAINT flows_flowrun_parent_id_231ec37d09dd4f48_fk_flows_flowrun_id FOREIGN KEY (parent_id) REFERENCES flows_flowrun(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowrun_submitted_by_id_52bc7a045a3baae3_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowrun
+    ADD CONSTRAINT flows_flowrun_submitted_by_id_52bc7a045a3baae3_fk_auth_user_id FOREIGN KEY (submitted_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowruncount_flow_id_54fcc157debd895e_fk_flows_flow_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowruncount
+    ADD CONSTRAINT flows_flowruncount_flow_id_54fcc157debd895e_fk_flows_flow_id FOREIGN KEY (flow_id) REFERENCES flows_flow(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flows_flowstart_id_190f2b17edae43d4_fk_flows_flowstart_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY flows_flowstart_groups
-    ADD CONSTRAINT flowstart_id_refs_id_149c72fcc464f547 FOREIGN KEY (flowstart_id) REFERENCES flows_flowstart(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT flows_flows_flowstart_id_190f2b17edae43d4_fk_flows_flowstart_id FOREIGN KEY (flowstart_id) REFERENCES flows_flowstart(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
--- Name: flowstart_id_refs_id_52e7786b42d0f432; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: flows_flows_flowstart_id_2d79ad5435e02d63_fk_flows_flowstart_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY flows_flowstart_contacts
-    ADD CONSTRAINT flowstart_id_refs_id_52e7786b42d0f432 FOREIGN KEY (flowstart_id) REFERENCES flows_flowstart(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT flows_flows_flowstart_id_2d79ad5435e02d63_fk_flows_flowstart_id FOREIGN KEY (flowstart_id) REFERENCES flows_flowstart(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
--- Name: flowstep_id_refs_id_62dfbfb72af3f8a7; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: flows_flowst_broadcast_id_7ec2882a13c82548_fk_msgs_broadcast_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowstep_broadcasts
+    ADD CONSTRAINT flows_flowst_broadcast_id_7ec2882a13c82548_fk_msgs_broadcast_id FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowst_contact_id_75c9d7eac0ef3c8f_fk_contacts_contact_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowstart_contacts
+    ADD CONSTRAINT flows_flowst_contact_id_75c9d7eac0ef3c8f_fk_contacts_contact_id FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowste_flowstep_id_60796a9cd2be2508_fk_flows_flowstep_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY flows_flowstep_messages
-    ADD CONSTRAINT flowstep_id_refs_id_62dfbfb72af3f8a7 FOREIGN KEY (flowstep_id) REFERENCES flows_flowstep(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT flows_flowste_flowstep_id_60796a9cd2be2508_fk_flows_flowstep_id FOREIGN KEY (flowstep_id) REFERENCES flows_flowstep(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowstep_flowstep_id_767cf268ab52cf6_fk_flows_flowstep_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowstep_broadcasts
+    ADD CONSTRAINT flows_flowstep_flowstep_id_767cf268ab52cf6_fk_flows_flowstep_id FOREIGN KEY (flowstep_id) REFERENCES flows_flowstep(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: flows_flowstep_messages_msg_id_223950c11747ded6_fk_msgs_msg_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY flows_flowstep_messages
+    ADD CONSTRAINT flows_flowstep_messages_msg_id_223950c11747ded6_fk_msgs_msg_id FOREIGN KEY (msg_id) REFERENCES msgs_msg(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -7923,6 +10068,22 @@ ALTER TABLE ONLY ivr_ivrcall
 
 
 --
+-- Name: ivr_ivrcall_contact_id_419ce6de95a060f9_fk_contacts_contact_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY ivr_ivrcall
+    ADD CONSTRAINT ivr_ivrcall_contact_id_419ce6de95a060f9_fk_contacts_contact_id FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: ivr_ivrcall_parent_id_72cfa22393cc2012_fk_ivr_ivrcall_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY ivr_ivrcall
+    ADD CONSTRAINT ivr_ivrcall_parent_id_72cfa22393cc2012_fk_ivr_ivrcall_id FOREIGN KEY (parent_id) REFERENCES ivr_ivrcall(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
 -- Name: label_id_refs_id_6916c8fb8329be69; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7936,6 +10097,14 @@ ALTER TABLE ONLY msgs_msg_labels
 
 ALTER TABLE ONLY msgs_exportmessagestask
     ADD CONSTRAINT label_id_refs_id_73b41ef0 FOREIGN KEY (label_id) REFERENCES msgs_label(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: locati_parent_id_41e8ac6845aa81af_fk_locations_adminboundary_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY locations_adminboundary
+    ADD CONSTRAINT locati_parent_id_41e8ac6845aa81af_fk_locations_adminboundary_id FOREIGN KEY (parent_id) REFERENCES locations_adminboundary(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -8043,14 +10212,6 @@ ALTER TABLE ONLY contacts_contact
 
 
 --
--- Name: modified_by_id_refs_id_46995b61b9b84e2e; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_call
-    ADD CONSTRAINT modified_by_id_refs_id_46995b61b9b84e2e FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: modified_by_id_refs_id_470c2ab12f360eb3; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8155,14 +10316,6 @@ ALTER TABLE ONLY ivr_ivrcall
 
 
 --
--- Name: modified_by_id_refs_id_7d242c12; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY flows_flowversion
-    ADD CONSTRAINT modified_by_id_refs_id_7d242c12 FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: modified_by_id_refs_id_8de76f8914b53e2; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8219,11 +10372,91 @@ ALTER TABLE ONLY channels_alert
 
 
 --
+-- Name: ms_contactgroup_id_20a9b0f24aa76602_fk_contacts_contactgroup_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_exportmessagestask_groups
+    ADD CONSTRAINT ms_contactgroup_id_20a9b0f24aa76602_fk_contacts_contactgroup_id FOREIGN KEY (contactgroup_id) REFERENCES contacts_contactgroup(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: ms_contactgroup_id_69fa68e0f5da4933_fk_contacts_contactgroup_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_broadcast_groups
+    ADD CONSTRAINT ms_contactgroup_id_69fa68e0f5da4933_fk_contacts_contactgroup_id FOREIGN KEY (contactgroup_id) REFERENCES contacts_contactgroup(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs__contact_urn_id_59810d7ced4679b1_fk_contacts_contacturn_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_msg
+    ADD CONSTRAINT msgs__contact_urn_id_59810d7ced4679b1_fk_contacts_contacturn_id FOREIGN KEY (contact_urn_id) REFERENCES contacts_contacturn(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_b_contacturn_id_6650304a8351a905_fk_contacts_contacturn_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_broadcast_urns
+    ADD CONSTRAINT msgs_b_contacturn_id_6650304a8351a905_fk_contacts_contacturn_id FOREIGN KEY (contacturn_id) REFERENCES contacts_contacturn(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_broadca_broadcast_id_273686d8dda14f12_fk_msgs_broadcast_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_broadcast_groups
+    ADD CONSTRAINT msgs_broadca_broadcast_id_273686d8dda14f12_fk_msgs_broadcast_id FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_broadca_broadcast_id_5b4fa96ddab8e374_fk_msgs_broadcast_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_broadcast_urns
+    ADD CONSTRAINT msgs_broadca_broadcast_id_5b4fa96ddab8e374_fk_msgs_broadcast_id FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_broadca_broadcast_id_60c4701b2deac7ba_fk_msgs_broadcast_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_broadcast_recipients
+    ADD CONSTRAINT msgs_broadca_broadcast_id_60c4701b2deac7ba_fk_msgs_broadcast_id FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_broadca_broadcast_id_62a015996c701a93_fk_msgs_broadcast_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_broadcast_contacts
+    ADD CONSTRAINT msgs_broadca_broadcast_id_62a015996c701a93_fk_msgs_broadcast_id FOREIGN KEY (broadcast_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
 -- Name: msgs_broadca_channel_id_20eff13de920a190_fk_channels_channel_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY msgs_broadcast
     ADD CONSTRAINT msgs_broadca_channel_id_20eff13de920a190_fk_channels_channel_id FOREIGN KEY (channel_id) REFERENCES channels_channel(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_broadca_contact_id_24f586819443ac38_fk_contacts_contact_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_broadcast_contacts
+    ADD CONSTRAINT msgs_broadca_contact_id_24f586819443ac38_fk_contacts_contact_id FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_broadca_contact_id_531aa811f8373ea1_fk_contacts_contact_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_broadcast_recipients
+    ADD CONSTRAINT msgs_broadca_contact_id_531aa811f8373ea1_fk_contacts_contact_id FOREIGN KEY (contact_id) REFERENCES contacts_contact(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -8248,6 +10481,22 @@ ALTER TABLE ONLY msgs_label
 
 ALTER TABLE ONLY msgs_label
     ADD CONSTRAINT msgs_label_modified_by_id_17b1c8500c7961a1_fk_auth_user_id FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_msg_response_to_id_45a3c38a6499df3a_fk_msgs_msg_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_msg
+    ADD CONSTRAINT msgs_msg_response_to_id_45a3c38a6499df3a_fk_msgs_msg_id FOREIGN KEY (response_to_id) REFERENCES msgs_msg(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: msgs_systemlabel_org_id_1a58b294c190c287_fk_orgs_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY msgs_systemlabel
+    ADD CONSTRAINT msgs_systemlabel_org_id_1a58b294c190c287_fk_orgs_org_id FOREIGN KEY (org_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -8395,14 +10644,6 @@ ALTER TABLE ONLY flows_flow
 
 
 --
--- Name: org_id_refs_id_65d150fc1504ec2b; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_call
-    ADD CONSTRAINT org_id_refs_id_65d150fc1504ec2b FOREIGN KEY (org_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: org_id_refs_id_678f9b66ee4fc79; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8467,6 +10708,62 @@ ALTER TABLE ONLY contacts_exportcontactstask
 
 
 --
+-- Name: orgs_debit_beneficiary_id_21ba272f358188aa_fk_orgs_topup_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_debit
+    ADD CONSTRAINT orgs_debit_beneficiary_id_21ba272f358188aa_fk_orgs_topup_id FOREIGN KEY (beneficiary_id) REFERENCES orgs_topup(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: orgs_debit_created_by_id_5ee763d59ee61ca8_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_debit
+    ADD CONSTRAINT orgs_debit_created_by_id_5ee763d59ee61ca8_fk_auth_user_id FOREIGN KEY (created_by_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: orgs_debit_topup_id_5e13a9e462dead6d_fk_orgs_topup_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_debit
+    ADD CONSTRAINT orgs_debit_topup_id_5e13a9e462dead6d_fk_orgs_topup_id FOREIGN KEY (topup_id) REFERENCES orgs_topup(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: orgs_org_parent_id_6ed7073b12663ca6_fk_orgs_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_org
+    ADD CONSTRAINT orgs_org_parent_id_6ed7073b12663ca6_fk_orgs_org_id FOREIGN KEY (parent_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: orgs_org_surveyors_org_id_1e5b076c16bdf956_fk_orgs_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_org_surveyors
+    ADD CONSTRAINT orgs_org_surveyors_org_id_1e5b076c16bdf956_fk_orgs_org_id FOREIGN KEY (org_id) REFERENCES orgs_org(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: orgs_org_surveyors_user_id_4d68d0965296c882_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_org_surveyors
+    ADD CONSTRAINT orgs_org_surveyors_user_id_4d68d0965296c882_fk_auth_user_id FOREIGN KEY (user_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: orgs_topupcredits_topup_id_4e2f6eed8dff1ce8_fk_orgs_topup_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY orgs_topupcredits
+    ADD CONSTRAINT orgs_topupcredits_topup_id_4e2f6eed8dff1ce8_fk_orgs_topup_id FOREIGN KEY (topup_id) REFERENCES orgs_topup(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
 -- Name: parent_id_refs_id_076599a3; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8480,14 +10777,6 @@ ALTER TABLE ONLY channels_channel
 
 ALTER TABLE ONLY msgs_broadcast
     ADD CONSTRAINT parent_id_refs_id_4e8db3b1d86baa49 FOREIGN KEY (parent_id) REFERENCES msgs_broadcast(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: parent_id_refs_id_9b4c175d; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY locations_adminboundary
-    ADD CONSTRAINT parent_id_refs_id_9b4c175d FOREIGN KEY (parent_id) REFERENCES locations_adminboundary(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -8555,14 +10844,6 @@ ALTER TABLE ONLY api_webhookevent
 
 
 --
--- Name: relayer_id_refs_id_56177ce05fb3e43; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_call
-    ADD CONSTRAINT relayer_id_refs_id_56177ce05fb3e43 FOREIGN KEY (channel_id) REFERENCES channels_channel(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: relayer_id_refs_id_63e41d5a7b0d0025; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8592,14 +10873,6 @@ ALTER TABLE ONLY contacts_contacturn
 
 ALTER TABLE ONLY triggers_trigger
     ADD CONSTRAINT relayer_id_refs_id_e8f4d6e4 FOREIGN KEY (channel_id) REFERENCES channels_channel(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: response_to_id_refs_id_3a3b14e5a428ab89; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY msgs_msg
-    ADD CONSTRAINT response_to_id_refs_id_3a3b14e5a428ab89 FOREIGN KEY (response_to_id) REFERENCES msgs_msg(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -8667,27 +10940,11 @@ ALTER TABLE ONLY dashboard_searchposition
 
 
 --
--- Name: sms_id_refs_id_6afda843f07d0887; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY flows_flowstep_messages
-    ADD CONSTRAINT sms_id_refs_id_6afda843f07d0887 FOREIGN KEY (msg_id) REFERENCES msgs_msg(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
 -- Name: sms_id_refs_id_6ce29883cc671bee; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY msgs_msg_labels
     ADD CONSTRAINT sms_id_refs_id_6ce29883cc671bee FOREIGN KEY (msg_id) REFERENCES msgs_msg(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: sms_id_refs_id_cbffe71ce9c944e; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY channels_channellog
-    ADD CONSTRAINT sms_id_refs_id_cbffe71ce9c944e FOREIGN KEY (msg_id) REFERENCES msgs_msg(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -8728,6 +10985,14 @@ ALTER TABLE ONLY triggers_trigger_groups
 
 ALTER TABLE ONLY triggers_trigger_contacts
     ADD CONSTRAINT trigger_id_refs_id_f42ab82ea7d3bbe FOREIGN KEY (trigger_id) REFERENCES triggers_trigger(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: triggers_trigger_flow_id_3c5d221c435299b8_fk_flows_flow_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY triggers_trigger
+    ADD CONSTRAINT triggers_trigger_flow_id_3c5d221c435299b8_fk_flows_flow_id FOREIGN KEY (flow_id) REFERENCES flows_flow(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -8776,14 +11041,6 @@ ALTER TABLE ONLY auth_user_user_permissions
 
 ALTER TABLE ONLY orgs_org_editors
     ADD CONSTRAINT user_id_refs_id_614e2019c95e8429 FOREIGN KEY (user_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: user_id_refs_id_7fd06f635656ace4; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY authtoken_token
-    ADD CONSTRAINT user_id_refs_id_7fd06f635656ace4 FOREIGN KEY (user_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
