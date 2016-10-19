@@ -25,10 +25,19 @@ public class HealthCheckServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         Map<String, HealthCheck.Result> results = m_healthCheckRegistry.runHealthChecks();
+        boolean hasError = false;
 
         for (Map.Entry<String, HealthCheck.Result> entry : results.entrySet()) {
             HealthCheck.Result result = entry.getValue();
-            String status = result.isHealthy() ? "OK" : "ERROR";
+            String status;
+
+            if (result.isHealthy()) {
+                status = "OK";
+            } else {
+                status = "ERROR";
+                hasError = true;
+            }
+
             resp.getWriter().print(entry.getKey() + ": " + status);
 
             if (result.getMessage() != null) {
@@ -37,5 +46,7 @@ public class HealthCheckServlet extends HttpServlet {
 
             resp.getWriter().println();
         }
+
+        resp.setStatus(hasError ? HttpServletResponse.SC_SERVICE_UNAVAILABLE : HttpServletResponse.SC_OK);
     }
 }
