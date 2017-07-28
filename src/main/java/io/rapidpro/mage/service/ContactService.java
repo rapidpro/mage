@@ -31,7 +31,7 @@ public class ContactService extends BaseService<ContactDao> {
 
         return org.withLockOn(Org.OrgLock.CONTACTS, resource -> {
             // look up the contact (with channel)
-            ContactContext contactContext = getDao().getContactContextByOrgAndUrn(orgId, urn.toString());
+            ContactContext contactContext = getDao().getContactContextByOrgAndUrn(orgId, urn.toIdentity());
             int userId = getManager().getServiceUserId();
 
             if (contactContext != null) {
@@ -59,9 +59,10 @@ public class ContactService extends BaseService<ContactDao> {
                 int contactUrnId = getDao().insertContactUrn(
                         orgId,
                         contactId,
-                        urn.toString(),
+                        urn.toIdentity(),
                         urn.getScheme().toString(),
                         urn.getPath(),
+                        urn.getDisplay(),
                         urn.getScheme().getDefaultPriority(),
                         channelId
                 );

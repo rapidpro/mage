@@ -109,7 +109,7 @@ public class MessageServiceTest extends BaseServicesTest {
         IncomingContext context = new IncomingContext(-41, "RW", ChannelType.TWILIO, -11, null);
 
         // create with existing contact #1
-        int message1Id = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TEL, "+250735250222"), "Hello", createdOn, "MSG7", "Bob");
+        int message1Id = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TEL, "+250735250222", null), "Hello", createdOn, "MSG7", "Bob");
         Map<String, Object> message1 = fetchSingleById(Table.MESSAGE, message1Id);
         assertThat(message1, hasEntry("text", "Hello"));
         assertThat(message1, hasEntry("contact_id", -51));
@@ -127,7 +127,7 @@ public class MessageServiceTest extends BaseServicesTest {
         assertQueuedHandleRequest(message1.get("id"), false);
 
         // create with new contact
-        int message2Id = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TEL, "+250735250111"), "World", createdOn, "MSG8", "Bob");
+        int message2Id = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TEL, "+250735250111", null), "World", createdOn, "MSG8", "Bob");
         Map<String, Object> message2 = fetchSingleById(Table.MESSAGE, message2Id);
         assertThat(message2, hasEntry("text", "World"));
         assertThat(message2, hasEntry("direction", "I"));
@@ -149,14 +149,14 @@ public class MessageServiceTest extends BaseServicesTest {
         assertQueuedHandleRequest(message2.get("id"), true);
 
         // try creating same message again
-        int message3Id = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TEL, "+250735250111"), "World", createdOn, "MSG8", "Bob");
+        int message3Id = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TEL, "+250735250111", null), "World", createdOn, "MSG8", "Bob");
         assertThat(message3Id, is(message2Id));
 
         // check for no queued handle message request
         assertThat(getCache().listLength(MageConstants.CacheKey.TEMBA_REQUEST_QUEUE), is(0L));
 
         // create Twitter message
-        int messageId = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TWITTER, "BillyBob"), "Tweet", createdOn, "1234567890", "Billy Bob");
+        int messageId = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TWITTER, "BillyBob", null), "Tweet", createdOn, "1234567890", "Billy Bob");
         Map<String, Object> message4 = fetchSingleById(Table.MESSAGE, messageId);
         assertThat(message4, hasEntry("text", "Tweet"));
         assertThat(message4, hasEntry("direction", "I"));
