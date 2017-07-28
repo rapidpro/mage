@@ -34,7 +34,7 @@ public class ContactServiceTest extends BaseServicesTest {
         assertThat(contact1, hasEntry("modified_by_id", -3));
 
         Map<String, Object> contact1Urn = fetchSingleById(Table.CONTACT_URN, context1.getContactUrnId());
-        assertThat(contact1Urn, hasEntry("urn", "tel:+250735250333"));
+        assertThat(contact1Urn, hasEntry("identity", "tel:+250735250333"));
         assertThat(contact1Urn, hasEntry("path", "+250735250333"));
         assertThat(contact1Urn, hasEntry("scheme", "tel"));
         assertThat(contact1Urn, hasEntry("org_id", -11));
@@ -80,7 +80,7 @@ public class ContactServiceTest extends BaseServicesTest {
         assertThat(contact4, hasEntry("is_active", true));
 
         Map<String, Object> contact4Urn = fetchSingleById(Table.CONTACT_URN, context4.getContactUrnId());
-        assertThat(contact4Urn, hasEntry("urn", "tel:+250735250333"));
+        assertThat(contact4Urn, hasEntry("identity", "tel:+250735250333"));
         assertThat(contact4Urn, hasEntry("path", "+250735250333"));
         assertThat(contact4Urn, hasEntry("scheme", "tel"));
         assertThat(contact4Urn, hasEntry("org_id", -11));

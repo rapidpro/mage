@@ -72,7 +72,7 @@ public class ContactDaoTest extends BaseServicesTest {
         assertThat(contactURN.get("priority"), is(50));
         assertThat(contactURN.get("channel_id"), is(-41));
 
-        int contactURNId2 = m_dao.insertContactUrn(-11, -51, "twitter:nicpottier", "twitter", "12345", "nicpottier", 50, -41);
+        int contactURNId2 = m_dao.insertContactUrn(-11, -51, "twitter:12345", "twitter", "12345", "nicpottier", 50, -41);
         Map<String, Object> contactURN2 = fetchSingleById(Table.CONTACT_URN, contactURNId2);
         assertThat(contactURN2.get("org_id"), is(-11));
         assertThat(contactURN2.get("contact_id"), is(-51));
