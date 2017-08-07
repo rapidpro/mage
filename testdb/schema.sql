@@ -1954,7 +1954,8 @@ ALTER SEQUENCE channels_alert_id_seq OWNED BY channels_alert.id;
 
 
 --
--- Name: channels_channel; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+-- Name: channels_channel; Type: TABLE; Schema: public; Owner: -; Tablespace:
+-- Note we leave out `schemes` on purpose due to lack of support in DBUnit for array fields
 --
 
 CREATE TABLE channels_channel (
@@ -1980,8 +1981,7 @@ CREATE TABLE channels_channel (
     config text,
     role character varying(4) NOT NULL,
     parent_id integer,
-    bod text,
-    schemes character varying(8)[] NOT NULL
+    bod text
 );
 
 
