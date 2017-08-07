@@ -1981,7 +1981,7 @@ CREATE TABLE channels_channel (
     role character varying(4) NOT NULL,
     parent_id integer,
     bod text,
-    scheme character varying(8) NOT NULL
+    schemes character varying(8)[] NOT NULL
 );
 
 

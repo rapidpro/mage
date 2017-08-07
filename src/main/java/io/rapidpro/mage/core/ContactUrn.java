@@ -95,17 +95,6 @@ public class ContactUrn {
 
     public String toIdentity(){ return m_scheme + ":" + m_path; }
 
-    /**
-     * Alternate identities exist for Twitter URNs as we have represented them using
-     * the screen name instead of the user id in the past.
-     */
-    public String toAlternateIdentity(){
-        if (m_scheme == Scheme.TWITTER && m_display != null){
-            return m_scheme + ":" + m_display;
-        }
-        return null;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
