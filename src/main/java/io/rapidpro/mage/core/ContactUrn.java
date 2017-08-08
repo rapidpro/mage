@@ -34,9 +34,12 @@ public class ContactUrn {
 
     private String m_path;
 
-    public ContactUrn(Scheme scheme, String path) {
+    private String m_display;
+
+    public ContactUrn(Scheme scheme, String path, String display) {
         this.m_scheme = scheme;
         this.m_path = path;
+        this.m_display = display;
     }
 
     public Scheme getScheme() {
@@ -46,6 +49,8 @@ public class ContactUrn {
     public String getPath() {
         return m_path;
     }
+
+    public String getDisplay(){ return m_display; }
 
     /**
      * Returns a normalized version of this URN
@@ -66,14 +71,29 @@ public class ContactUrn {
             }
         }
 
-        return new ContactUrn(m_scheme, normalizedPath);
+        String display = m_display;
+        if (display != null) {
+            display = m_display.trim().toLowerCase();
+
+            if (m_scheme == Scheme.TWITTER && display.startsWith("@")) {
+                display = display.substring(1);
+            }
+        }
+
+        return new ContactUrn(m_scheme, normalizedPath, display);
     }
 
     @JsonValue
     @Override
     public String toString() {
-        return m_scheme + ":" + m_path;
+        String strValue = m_scheme + ":" + m_path;
+        if (m_display != null) {
+            strValue += "#" + m_display;
+        }
+        return strValue;
     }
+
+    public String toIdentity(){ return m_scheme + ":" + m_path; }
 
     @Override
     public boolean equals(Object o) {

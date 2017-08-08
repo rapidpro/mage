@@ -34,27 +34,27 @@ the table, and second identifies the item. This minimizes possible confusion of 
     <orgs_topupcredits id="-33" topup_id="-33" used="4" />
 
     <!-- Channel (type = Twilio, role = RECEIVE) for org #1 -->
-    <channels_channel id="-41" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #1" scheme="tel" address="+250111111111" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="T" role="R" uuid="A6977A60-77EE-46FD-BFFA-AE58A65150DA" />
+    <channels_channel id="-41" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #1" address="+250111111111" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="T" role="R" uuid="A6977A60-77EE-46FD-BFFA-AE58A65150DA" />
     <channels_channelcount id="-41" channel_id="-41" count_type="OM" day="2015-07-16" count="0" />
 
     <!-- Channel (type = Nexmo, role = RECEIVE, inactive) for org #1 -->
-    <channels_channel id="-42" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #2" scheme="tel" address="+250222222222" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="NX" role="R" uuid="B8E3F824-D4B3-4A59-91E1-45BFF6D74263" />
+    <channels_channel id="-42" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #2" address="+250222222222" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="NX" role="R" uuid="B8E3F824-D4B3-4A59-91E1-45BFF6D74263" />
     <channels_channelcount id="-42" channel_id="-42" count_type="OM" day="2015-07-16" count="0" />
 
     <!-- Channel (type = External, role = RECEIVE) for org #1 -->
-    <channels_channel id="-43" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #3" scheme="tel" address="+250333333333" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="EX" role="R" uuid="788B08AF-405C-43EF-9D40-7535CFA7663E" />
+    <channels_channel id="-43" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Test channel #3" address="+250333333333" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="EX" role="R" uuid="788B08AF-405C-43EF-9D40-7535CFA7663E" />
     <channels_channelcount id="-43" channel_id="-43" count_type="OM" day="2015-07-16" count="0" />
 
     <!-- Channel (type = Twitter, role = RECEIVE, SEND) for org #1 -->
-    <channels_channel id="-44" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Twitter channel" scheme="twitter" address="billy_bob" last_seen="2013-12-25 17:58:32.829" channel_type="TT" role="SR" uuid="C5E00DFA-3477-49B7-8070-BE87EA69AD54" config="{&quot;handle_id&quot;:567890,&quot;oauth_token&quot;:&quot;abcde&quot;,&quot;oauth_token_secret&quot;:&quot;12345&quot;,&quot;auto_follow&quot;:true}" />
+    <channels_channel id="-44" org_id="-11" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Twitter channel" address="billy_bob" last_seen="2013-12-25 17:58:32.829" channel_type="TT" role="SR" uuid="C5E00DFA-3477-49B7-8070-BE87EA69AD54" config="{&quot;handle_id&quot;:567890,&quot;oauth_token&quot;:&quot;abcde&quot;,&quot;oauth_token_secret&quot;:&quot;12345&quot;,&quot;auto_follow&quot;:true}" />
     <channels_channelcount id="-44" channel_id="-44" count_type="OM" day="2015-07-16" count="0" />
 
     <!-- Channel (type = Vumi, role = RECEIVE, SEND) for org #2 -->
-    <channels_channel id="-45" org_id="-12" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Vumi channel" scheme="tel" address="+250444444444" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="VM" role="SR" uuid="C4C92278-586E-4B38-93C4-D413FEF43FA2" />
+    <channels_channel id="-45" org_id="-12" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Vumi channel" address="+250444444444" last_seen="2013-12-25 17:58:32.829" country="RW" channel_type="VM" role="SR" uuid="C4C92278-586E-4B38-93C4-D413FEF43FA2" />
     <channels_channelcount id="-45" channel_id="-45" count_type="OM" day="2015-07-16" count="0" />
 
     <!-- Channel (type = Twitter, role = RECEIVE, SEND) for org #2 -->
-    <channels_channel id="-46" org_id="-12" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Twitter channel" scheme="twitter" address="jimmy_joe" last_seen="2013-12-25 17:58:32.829" channel_type="TT" role="SR" uuid="727D294D-E393-47F6-BBAD-0C0EF70593F2" config="{&quot;handle_id&quot;:678901,&quot;oauth_token&quot;:&quot;bcdef&quot;,&quot;oauth_token_secret&quot;:&quot;23456&quot;}" />
+    <channels_channel id="-46" org_id="-12" is_active="true" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Twitter channel" address="jimmy_joe" last_seen="2013-12-25 17:58:32.829" channel_type="TT" role="SR" uuid="727D294D-E393-47F6-BBAD-0C0EF70593F2" config="{&quot;handle_id&quot;:678901,&quot;oauth_token&quot;:&quot;bcdef&quot;,&quot;oauth_token_secret&quot;:&quot;23456&quot;}" />
     <channels_channelcount id="-46" channel_id="-46" count_type="OM" day="2015-07-16" count="0" />
 
     <!-- Contact groups for org #1 -->
@@ -77,14 +77,14 @@ the table, and second identifies the item. This minimizes possible confusion of 
 
     <!-- Add contact #1 to org #1 (last use channel #1) -->
     <contacts_contact id="-51" is_active="true" org_id="-11" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" name="Nicolas" is_test="false" is_blocked="false" is_stopped="false" uuid="226456A5-22FF-476E-AC5D-BF9A87A32EF7" />
-    <contacts_contacturn id="-61" contact_id="-51" org_id="-11" urn="tel:+250735250222" scheme="tel" priority="50" path="+250735250222" channel_id="-41"  />
+    <contacts_contacturn id="-61" contact_id="-51" org_id="-11" identity="tel:+250735250222" scheme="tel" priority="50" path="+250735250222" channel_id="-41"  />
 
     <!-- Add contact #2 to org #2 (no channel or name) -->
     <contacts_contact id="-52" is_active="true" org_id="-12" created_by_id="-2" created_on="2013-08-09 14:43:46.925" modified_by_id="-2" modified_on="2013-08-10 15:11:26.372" is_test="false" is_blocked="false" is_stopped="false" uuid="1AAFAD87-6859-458B-81DF-063D9615121C" />
-    <contacts_contacturn id="-62" contact_id="-52" org_id="-12" urn="tel:+250783835665" scheme="tel" priority="50" path="+250783835665" />
+    <contacts_contacturn id="-62" contact_id="-52" org_id="-12" identity="tel:+250783835665" scheme="tel" priority="50" path="+250783835665" />
 
     <!-- A detached URN -->
-    <contacts_contacturn id="-63" org_id="-12" urn="twitter:billy_bob" scheme="twitter" path="billy_bob" priority="90" />
+    <contacts_contacturn id="-63" org_id="-12" identity="twitter:billy_bob" scheme="twitter" path="billy_bob" priority="90" />
 
     <!-- Add a contact to a group. We need this so that dbunit truncates this table before the contact table when doing CLEAN_INSERT -->
     <contacts_contactgroup_contacts contactgroup_id="-94" contact_id="-51" />

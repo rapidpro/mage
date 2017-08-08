@@ -1954,7 +1954,8 @@ ALTER SEQUENCE channels_alert_id_seq OWNED BY channels_alert.id;
 
 
 --
--- Name: channels_channel; Type: TABLE; Schema: public; Owner: -; Tablespace: 
+-- Name: channels_channel; Type: TABLE; Schema: public; Owner: -; Tablespace:
+-- Note we leave out `schemes` on purpose due to lack of support in DBUnit for array fields
 --
 
 CREATE TABLE channels_channel (
@@ -1980,8 +1981,7 @@ CREATE TABLE channels_channel (
     config text,
     role character varying(4) NOT NULL,
     parent_id integer,
-    bod text,
-    scheme character varying(8) NOT NULL
+    bod text
 );
 
 
@@ -2330,8 +2330,9 @@ ALTER SEQUENCE contacts_contactgroupcount_id_seq OWNED BY contacts_contactgroupc
 CREATE TABLE contacts_contacturn (
     id integer NOT NULL,
     contact_id integer,
-    urn character varying(255) NOT NULL,
+    identity character varying(255) NOT NULL,
     scheme character varying(128) NOT NULL,
+    display character varying(255) NULL,
     org_id integer NOT NULL,
     priority integer NOT NULL,
     path character varying(255) NOT NULL,
@@ -5938,7 +5939,7 @@ ALTER TABLE ONLY contacts_contactgroupcount
 --
 
 ALTER TABLE ONLY contacts_contacturn
-    ADD CONSTRAINT contacts_contacturn_org_id_53c1dd6b37975d80_uniq UNIQUE (org_id, urn);
+    ADD CONSTRAINT contacts_contacturn_org_id_53c1dd6b37975d80_uniq UNIQUE (org_id, identity);
 
 
 --
