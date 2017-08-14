@@ -12,7 +12,8 @@ public class ContactUrn {
 
     public enum Scheme {
         TEL(50),
-        TWITTER(90);
+        TWITTER(90),
+        TWITTERID(90);
 
         private int defaultPriority;
 
@@ -75,7 +76,7 @@ public class ContactUrn {
         if (display != null) {
             display = m_display.trim().toLowerCase();
 
-            if (m_scheme == Scheme.TWITTER && display.startsWith("@")) {
+            if (m_scheme == Scheme.TWITTERID && display.startsWith("@")) {
                 display = display.substring(1);
             }
         }

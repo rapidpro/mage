@@ -156,7 +156,7 @@ public class MessageServiceTest extends BaseServicesTest {
         assertThat(getCache().listLength(MageConstants.CacheKey.TEMBA_REQUEST_QUEUE), is(0L));
 
         // create Twitter message
-        int messageId = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TWITTER, "12345", "BBob"), "Tweet", createdOn, "1234567890", "Billy Bob");
+        int messageId = m_service.createIncoming(context, new ContactUrn(ContactUrn.Scheme.TWITTERID, "12345", "BBob"), "Tweet", createdOn, "1234567890", "Billy Bob");
         Map<String, Object> message4 = fetchSingleById(Table.MESSAGE, messageId);
         assertThat(message4, hasEntry("text", "Tweet"));
         assertThat(message4, hasEntry("direction", "I"));
@@ -168,7 +168,7 @@ public class MessageServiceTest extends BaseServicesTest {
         assertThat(contact, hasEntry("name", "Billy Bob"));
 
         contactURN = fetchSingleById(Table.CONTACT_URN, (Integer) message4.get("contact_urn_id"));
-        assertThat(contactURN, hasEntry("identity", "twitter:12345"));
+        assertThat(contactURN, hasEntry("identity", "twitterid:12345"));
         assertThat(contactURN, hasEntry("display", "bbob"));
         assertThat(contactURN, hasEntry("channel_id", -41));
     }
