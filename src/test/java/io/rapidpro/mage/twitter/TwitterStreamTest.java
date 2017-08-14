@@ -127,7 +127,7 @@ public class TwitterStreamTest extends BaseTwitterTest {
 
         urns = queryRows("SELECT * FROM contacts_contacturn WHERE org_id = -11 AND scheme = 'twitterid' ORDER BY id DESC");
         assertThat(urns, hasSize(4));
-        assertThat(urns.get(0), hasEntry("path", "2960784076"))
+        assertThat(urns.get(0), hasEntry("path", "2960784076"));
         assertThat(urns.get(0), hasEntry("display", "joeflowz"));
 
         stream.stop();
