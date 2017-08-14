@@ -59,7 +59,7 @@ public class ContactUrn {
      * @return the normalized URN
      */
     public ContactUrn normalize(String country) {
-        String normalizedPath = null;
+        String normalizedPath = m_path;
 
         if (m_scheme == Scheme.TEL) {
             normalizedPath = normalizeNumber(m_path, country);
