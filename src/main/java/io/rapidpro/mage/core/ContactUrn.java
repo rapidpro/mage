@@ -12,7 +12,8 @@ public class ContactUrn {
 
     public enum Scheme {
         TEL(50),
-        TWITTER(90);
+        TWITTER(90),
+        TWITTERID(90);
 
         private int defaultPriority;
 
@@ -58,7 +59,7 @@ public class ContactUrn {
      * @return the normalized URN
      */
     public ContactUrn normalize(String country) {
-        String normalizedPath = null;
+        String normalizedPath = m_path;
 
         if (m_scheme == Scheme.TEL) {
             normalizedPath = normalizeNumber(m_path, country);
@@ -75,7 +76,7 @@ public class ContactUrn {
         if (display != null) {
             display = m_display.trim().toLowerCase();
 
-            if (m_scheme == Scheme.TWITTER && display.startsWith("@")) {
+            if (m_scheme == Scheme.TWITTERID && display.startsWith("@")) {
                 display = display.substring(1);
             }
         }

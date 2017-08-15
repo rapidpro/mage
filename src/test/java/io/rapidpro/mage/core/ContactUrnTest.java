@@ -36,7 +36,7 @@ public class ContactUrnTest extends BaseMageTest {
     public void normalize() {
         assertThat(new ContactUrn(ContactUrn.Scheme.TEL, "0788383383", null).normalize("RW"), is(new ContactUrn(ContactUrn.Scheme.TEL, "+250788383383", null)));
         assertThat(new ContactUrn(ContactUrn.Scheme.TWITTER, " @BillyBob ", null).normalize(null), is(new ContactUrn(ContactUrn.Scheme.TWITTER, "billybob", null)));
-        assertThat(new ContactUrn(ContactUrn.Scheme.TWITTER, "12345", " @BillyBob").normalize(null), is(new ContactUrn(ContactUrn.Scheme.TWITTER, "12345", "billybob")));
+        assertThat(new ContactUrn(ContactUrn.Scheme.TWITTERID, "12345", " @BillyBob").normalize(null), is(new ContactUrn(ContactUrn.Scheme.TWITTERID, "12345", "billybob")));
     }
 
     /**
@@ -46,6 +46,6 @@ public class ContactUrnTest extends BaseMageTest {
     public void test_toString() {
         assertThat(new ContactUrn(ContactUrn.Scheme.TEL, "+1234", null).toString(), is("tel:+1234"));
         assertThat(new ContactUrn(ContactUrn.Scheme.TWITTER, "billy_bob", null).toString(), is("twitter:billy_bob"));
-        assertThat(new ContactUrn(ContactUrn.Scheme.TWITTER, "12345", "billy_bob").toString(), is("twitter:12345#billy_bob"));
+        assertThat(new ContactUrn(ContactUrn.Scheme.TWITTERID, "12345", "billy_bob").toString(), is("twitterid:12345#billy_bob"));
     }
 }
