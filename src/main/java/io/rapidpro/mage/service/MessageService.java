@@ -30,8 +30,6 @@ public class MessageService extends BaseService<MessageDao> {
 
     protected static final Logger log = LoggerFactory.getLogger(MessageService.class);
 
-    protected static final int MESSAGE_NORMAL_PRIORITY = 500;
-
     protected final TembaManager m_temba;
 
     public MessageService(ServiceManager manager, Cache cache, TembaManager temba, MessageDao dao) {
@@ -141,8 +139,7 @@ public class MessageService extends BaseService<MessageDao> {
                 context.getOrgId(),
                 createdOn,
                 new Date(), // queued on
-                externalId,
-                MESSAGE_NORMAL_PRIORITY
+                externalId
         );
 
         // queues up a Temba API call which will both handle this message and trigger a webhook events

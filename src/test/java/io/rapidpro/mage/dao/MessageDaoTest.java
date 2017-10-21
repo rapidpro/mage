@@ -73,14 +73,14 @@ public class MessageDaoTest extends BaseServicesTest {
     }
 
     /**
-     * @see MessageDao#insertIncoming(Integer, Integer, Integer, String, Integer, java.util.Date, java.util.Date, String, int)
+     * @see MessageDao#insertIncoming(Integer, Integer, Integer, String, Integer, java.util.Date, java.util.Date, String)
      */
     @Test
     public void insertIncoming() throws Exception {
         Date createdOn = new Date();
         Date queuedOn = new Date();
 
-        int messageId = m_dao.insertIncoming(-41, -51, -61, "Testing", -11, createdOn, queuedOn, "SMS123", 500);
+        int messageId = m_dao.insertIncoming(-41, -51, -61, "Testing", -11, createdOn, queuedOn, "SMS123");
         assertThat(messageId, greaterThan(0));
 
         Map<String, Object> message = fetchSingleById(Table.MESSAGE, messageId);
@@ -94,7 +94,6 @@ public class MessageDaoTest extends BaseServicesTest {
         assertThat(message, hasEntry("queued_on", queuedOn));
         assertThat(message, hasEntry("external_id", "SMS123"));
         assertThat(message, hasEntry("topup_id", null));
-        assertThat(message, hasEntry("priority", 500));
     }
 
     /**

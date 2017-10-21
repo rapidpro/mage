@@ -117,7 +117,6 @@ public class MessageServiceTest extends BaseServicesTest {
         assertThat(message1, hasEntry("created_on", createdOn));
         assertThat(message1, hasEntry("external_id", "MSG7"));
         assertThat(message1, hasEntry("topup_id", null));
-        assertThat(message1, hasEntry("priority", 500));
 
         int contact1Id = (Integer) message1.get("contact_id");
         Map<String, Object> contact1 = fetchSingleById(Table.CONTACT, contact1Id);
@@ -134,7 +133,6 @@ public class MessageServiceTest extends BaseServicesTest {
         assertThat(message2, hasEntry("created_on", createdOn));
         assertThat(message2, hasEntry("external_id", "MSG8"));
         assertThat(message1, hasEntry("topup_id", null));
-        assertThat(message1, hasEntry("priority", 500));
 
         int contact2Id = (Integer) message2.get("contact_id");
         Map<String, Object> contact2 = fetchSingleById(Table.CONTACT, contact2Id);
