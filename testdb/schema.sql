@@ -598,7 +598,6 @@ CREATE TABLE msgs_msg (
     visibility character varying(1) NOT NULL,
     topup_id integer,
     queued_on timestamp with time zone,
-    priority integer NOT NULL,
     contact_urn_id integer,
     media character varying(255)
 );
