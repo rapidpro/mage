@@ -589,7 +589,6 @@ CREATE TABLE msgs_msg (
     created_on timestamp with time zone NOT NULL,
     sent_on timestamp with time zone,
     modified_on timestamp with time zone,
-    has_template_error boolean NOT NULL,
     msg_type character varying(1),
     msg_count integer NOT NULL,
     external_id character varying(255),
