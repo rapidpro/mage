@@ -80,8 +80,8 @@ public interface MessageDao {
     String getLastExternalId(@Bind("channelId") int channelId, @BindEnum("direction") Direction direction);
 
     @SqlUpdate(
-            "INSERT INTO " + Table.MESSAGE + " (channel_id, contact_id, contact_urn_id, text, direction, status, org_id, created_on, queued_on, has_template_error, msg_type, msg_count, external_id, error_count, next_attempt, visibility) " +
-            "VALUES(:channelId, :contactId, :contactUrnId, :text, 'I', 'P', :orgId, :createdOn, :queuedOn, FALSE, NULL, 1, :externalId, 0, NOW(), 'V')"
+            "INSERT INTO " + Table.MESSAGE + " (channel_id, contact_id, contact_urn_id, text, direction, status, org_id, created_on, queued_on, msg_type, msg_count, external_id, error_count, next_attempt, visibility) " +
+            "VALUES(:channelId, :contactId, :contactUrnId, :text, 'I', 'P', :orgId, :createdOn, :queuedOn, NULL, 1, :externalId, 0, NOW(), 'V')"
     )
     @GetGeneratedKeys
     int insertIncoming(@Bind("channelId") Integer channelId,
