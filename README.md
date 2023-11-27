@@ -1,3 +1,6 @@
+This project is discontinued and uses a longer supported part of the Twitter API. [Courier](https://github.com/nyaruka/courier) now does receiving and sending of Twitter messages for RapidPro.
+___
+
 RapidPro Message Mage
 =====================
 

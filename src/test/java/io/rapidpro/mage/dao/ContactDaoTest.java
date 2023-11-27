@@ -62,15 +62,26 @@ public class ContactDaoTest extends BaseServicesTest {
      */
     @Test
     public void insertContactUrn() throws Exception {
-        int contactURNId = m_dao.insertContactUrn(-11, -51, "facebook:nicpottier", "facebook", "nicpottier", 50, -41);
+        int contactURNId = m_dao.insertContactUrn(-11, -51, "facebook:nicpottier", "facebook", "nicpottier", null, 50, -41);
         Map<String, Object> contactURN = fetchSingleById(Table.CONTACT_URN, contactURNId);
         assertThat(contactURN.get("org_id"), is(-11));
         assertThat(contactURN.get("contact_id"), is(-51));
-        assertThat(contactURN.get("urn"), is("facebook:nicpottier"));
+        assertThat(contactURN.get("identity"), is("facebook:nicpottier"));
         assertThat(contactURN.get("path"), is("nicpottier"));
         assertThat(contactURN.get("scheme"), is("facebook"));
         assertThat(contactURN.get("priority"), is(50));
         assertThat(contactURN.get("channel_id"), is(-41));
+
+        int contactURNId2 = m_dao.insertContactUrn(-11, -51, "twitter:12345", "twitter", "12345", "nicpottier", 50, -41);
+        Map<String, Object> contactURN2 = fetchSingleById(Table.CONTACT_URN, contactURNId2);
+        assertThat(contactURN2.get("org_id"), is(-11));
+        assertThat(contactURN2.get("contact_id"), is(-51));
+        assertThat(contactURN2.get("identity"), is("twitter:12345"));
+        assertThat(contactURN2.get("path"), is("12345"));
+        assertThat(contactURN2.get("display"), is("nicpottier"));
+        assertThat(contactURN2.get("scheme"), is("twitter"));
+        assertThat(contactURN2.get("priority"), is(50));
+        assertThat(contactURN2.get("channel_id"), is(-41));
     }
 
     /**

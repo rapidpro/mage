@@ -87,9 +87,10 @@ public class TwitterStreamTest extends BaseTwitterTest {
         assertThat(contacts.get(1), hasEntry("name", "Norbert Kwizera"));
 
         // urns are always lowercase
-        List<Map<String, Object>> urns = queryRows("SELECT * FROM contacts_contacturn WHERE org_id = -11 AND scheme = 'twitter' ORDER BY id");
+        List<Map<String, Object>> urns = queryRows("SELECT * FROM contacts_contacturn WHERE org_id = -11 AND scheme = 'twitterid' ORDER BY id");
         assertThat(urns, hasSize(1));
-        assertThat(urns.get(0), hasEntry("path", "norkans"));
+        assertThat(urns.get(0), hasEntry("path", "38895958"));
+        assertThat(urns.get(0), hasEntry("display", "norkans"));
 
         // another user follows channel user
         stream.onFollow(createTwitterUser("twitter/user_2.json"), createTwitterUser("twitter/user_1.json"));
@@ -124,9 +125,10 @@ public class TwitterStreamTest extends BaseTwitterTest {
         assertThat(contacts, hasSize(5));
         assertThat(contacts.get(4), hasEntry("name", null));
 
-        urns = queryRows("SELECT * FROM contacts_contacturn WHERE org_id = -11 AND scheme = 'twitter' ORDER BY id DESC");
+        urns = queryRows("SELECT * FROM contacts_contacturn WHERE org_id = -11 AND scheme = 'twitterid' ORDER BY id DESC");
         assertThat(urns, hasSize(4));
-        assertThat(urns.get(0), hasEntry("path", "joeflowz"));
+        assertThat(urns.get(0), hasEntry("path", "2960784076"));
+        assertThat(urns.get(0), hasEntry("display", "joeflowz"));
 
         stream.stop();
     }
