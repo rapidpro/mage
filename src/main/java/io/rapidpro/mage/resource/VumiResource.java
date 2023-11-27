@@ -110,6 +110,6 @@ public class VumiResource extends BaseResource {
 
         Date createdOn = Timestamp.valueOf(timestamp);
 
-        return handleMessageCreate(context, new ContactUrn(ContactUrn.Scheme.TEL, from), content, createdOn, externalId);
+        return handleMessageCreate(context, new ContactUrn(ContactUrn.Scheme.TEL, from, null), content, createdOn, externalId);
     }
 }

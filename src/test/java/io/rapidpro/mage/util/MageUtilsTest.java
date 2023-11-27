@@ -62,8 +62,9 @@ public class MageUtilsTest extends BaseMageTest {
      */
     @Test
     public void fieldValue_shouldReturnFieldValue() throws Exception {
-        ContactUrn obj = new ContactUrn(ContactUrn.Scheme.TWITTER, "billy_bob");
-        assertThat(MageUtils.getFieldValue(obj.getClass().getDeclaredField("m_scheme"), obj), is(ContactUrn.Scheme.TWITTER));
-        assertThat(MageUtils.getFieldValue(obj.getClass().getDeclaredField("m_path"), obj), is("billy_bob"));
+        ContactUrn obj = new ContactUrn(ContactUrn.Scheme.TWITTERID, "12345", "billy_bob");
+        assertThat(MageUtils.getFieldValue(obj.getClass().getDeclaredField("m_scheme"), obj), is(ContactUrn.Scheme.TWITTERID));
+        assertThat(MageUtils.getFieldValue(obj.getClass().getDeclaredField("m_path"), obj), is("12345"));
+        assertThat(MageUtils.getFieldValue(obj.getClass().getDeclaredField("m_display"), obj), is("billy_bob"));
     }
 }

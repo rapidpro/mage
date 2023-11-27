@@ -118,7 +118,7 @@ public class TwilioResource extends BaseResource {
 
         validateRequest(orgConfig, signature, url, params);
 
-        return handleMessageCreate(context, new ContactUrn(ContactUrn.Scheme.TEL, from), text, null, null);
+        return handleMessageCreate(context, new ContactUrn(ContactUrn.Scheme.TEL, from, null), text, null, null);
     }
 
     /**

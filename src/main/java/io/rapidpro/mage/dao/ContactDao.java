@@ -16,9 +16,9 @@ public interface ContactDao {
             "FROM " + Table.CONTACT_URN + " cu " +
             "LEFT OUTER JOIN " + Table.CONTACT + " c ON c.id = cu.contact_id " +
             "LEFT OUTER JOIN " + Table.CHANNEL + " r ON r.id = cu.channel_id " +
-            "WHERE cu.org_id = :orgId AND cu.urn = :urn"
+            "WHERE cu.org_id = :orgId AND cu.identity = :identity"
     )
-    ContactContext getContactContextByOrgAndUrn(@Bind("orgId") int orgId, @Bind("urn") String urn);
+    ContactContext getContactContextByOrgAndUrn(@Bind("orgId") int orgId, @Bind("identity") String identity);
 
     @SqlUpdate(
             "INSERT INTO " + Table.CONTACT + " (org_id, name, is_active, created_by_id, created_on, modified_by_id, modified_on, is_test, is_blocked, is_stopped, uuid) " +
@@ -28,15 +28,16 @@ public interface ContactDao {
     int insertContact(@Bind("userId") int userId, @Bind("orgId") int orgId, @Bind("name") String name, @Bind("uuid") String uuid);
 
     @SqlUpdate(
-            "INSERT INTO " + Table.CONTACT_URN + " (org_id, contact_id, urn, scheme, path, priority, channel_id) " +
-            "VALUES(:orgId, :contactId, :urn, :scheme, :path, :priority, :channelId)"
+            "INSERT INTO " + Table.CONTACT_URN + " (org_id, contact_id, identity, scheme, path, display, priority, channel_id) " +
+            "VALUES(:orgId, :contactId, :identity, :scheme, :path, :display, :priority, :channelId)"
     )
     @GetGeneratedKeys
     int insertContactUrn(@Bind("orgId") int orgId,
                          @Bind("contactId") int contactId,
-                         @Bind("urn") String urn,
+                         @Bind("identity") String identity,
                          @Bind("scheme") String scheme,
                          @Bind("path") String path,
+                         @Bind("display") String display,
                          @Bind("priority") int priority,
                          @Bind("channelId") int channelId);
 

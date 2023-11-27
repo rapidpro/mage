@@ -103,6 +103,6 @@ public class ExternalResource extends BaseResource {
             throw new BadRequestException("Channel with uuid: " + channelUuid + " not found");
         }
 
-        return handleMessageCreate(context, new ContactUrn(ContactUrn.Scheme.TEL, from), text, null, null);
+        return handleMessageCreate(context, new ContactUrn(ContactUrn.Scheme.TEL, from, null), text, null, null);
     }
 }
