@@ -36,7 +36,7 @@
     <properties>
         <dropwizard.version>0.8.0</dropwizard.version>
 
-        <postgresql.version>9.3-1101-jdbc41</postgresql.version>
+        <postgresql.version>42.3.3</postgresql.version>
         <jedis.version>2.7.0</jedis.version>
 
         <twilio.version>3.4.5</twilio.version>

@@ -23,21 +23,31 @@ public class MageDataSourceFactory extends DataSourceFactory {
     public void setFullUrl(String fullUrl) {
         this.m_fullUrl = fullUrl;
 
-        // see http://regex101.com/r/wE0xY0/1
-        Pattern pattern = Pattern.compile("(?<driver>\\w+)://(?<user>\\w+):(?<password>\\w+)@(?<host>[\\w\\.\\-:]+)/(?<schema>\\w+)");
-
+	// see https://regex101.com/r/bWGsPF/1
+	final String regex = "(?<driver>.+):\\/\\/(?<user>\\w+):(?<password>.*)@(?<host>.+):(?<port>\\d*)\\/(?<databaseName>\\w+)";
+	Pattern pattern = Pattern.compile(regex);
         Matcher matcher = pattern.matcher(fullUrl);
         if (!matcher.matches()) {
             throw new RuntimeException("database.fullUrl should be in format driver://user:password@host/schema");
         }
+
+	// Get the individual connection properties
+	String host = matcher.group("host");
+	String port = matcher.group("port");
+	String databaseName = matcher.group("databaseName");
+	String user = matcher.group("user");
+	String password = matcher.group("password");
 
         String driver = matcher.group("driver");
         if ("postgres".equals(driver)) {
             driver = "postgresql";
         }
 
-        this.setUrl("jdbc:" + driver + "://" + matcher.group("host") + "/" + matcher.group("schema"));
-        this.setUser(matcher.group("user"));
-        this.setPassword(matcher.group("password"));
+	password = (password.length() > 0) ? password : null;
+	port = (port.length() > 0) ? port : "5432";
+
+        this.setUrl(String.format("jdbc:%s://%s:%s/%s?ApplicationName=%s", driver, host, port, databaseName, "mage"));
+        this.setUser(user);
+        this.setPassword(password);
     }
 }
