@@ -113,6 +113,9 @@ public class MageConfiguration extends Configuration {
         @JsonProperty("database")
         private int m_database;
 
+	@JsonProperty("password")
+	private String m_password;
+
         public String getHost() {
             return m_host;
         }
@@ -120,6 +123,10 @@ public class MageConfiguration extends Configuration {
         public int getDatabase() {
             return m_database;
         }
+
+	public String getPassword() {
+	    return m_password;
+	}
     }
 
     /**

@@ -27,16 +27,20 @@ public class Cache implements Managed {
 
     private int m_database;
 
+    private String m_password;
+
     private JedisPool m_pool;
 
     /**
      * Creates a Redis cache
      * @param host the host, e.g. "localhost"
      * @param database, the database index, e.g. 0 is default
+     * @param password, the password to redis, e.g. null is default
      */
-    public Cache(String host, int database) {
+    public Cache(String host, int database, String password) {
         m_host = host;
         m_database = database;
+	m_password = password;
     }
 
     /**
@@ -46,7 +50,7 @@ public class Cache implements Managed {
     public void start() throws Exception {
         JedisPoolConfig config = new JedisPoolConfig();
 
-        m_pool = new JedisPool(config, m_host, Protocol.DEFAULT_PORT, Protocol.DEFAULT_TIMEOUT, null, m_database);
+        m_pool = new JedisPool(config, m_host, Protocol.DEFAULT_PORT, Protocol.DEFAULT_TIMEOUT, m_password, m_database);
 
         log.info("Created Redis pool ({} max-total, {} max-idle)", config.getMaxTotal(), config.getMaxIdle());
     }

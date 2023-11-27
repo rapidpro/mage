@@ -30,8 +30,8 @@ public class TembaManagerTest extends BaseServicesTest {
     protected class FailInitiallyCache extends Cache {
         private boolean m_initial = true;
 
-        public FailInitiallyCache(String host, int database) {
-            super(host, database);
+        public FailInitiallyCache(String host, int database, String password) {
+            super(host, database, password);
         }
 
         @Override

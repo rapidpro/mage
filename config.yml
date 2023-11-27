@@ -70,9 +70,10 @@ logging:
 redis:
     host: ${REDIS_HOST}
     database: ${REDIS_DATABASE}
+    password: ${REDIS_PASSWORD}
 
 temba:
-    apiUrl: https://${TEMBA_HOST}/api/v1
+    apiUrl: https://${TEMBA_HOST}/api/v2
     authToken: ${TEMBA_AUTH_TOKEN}
 
 twitter:

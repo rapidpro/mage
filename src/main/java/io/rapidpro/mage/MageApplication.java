@@ -105,7 +105,7 @@ public class MageApplication extends Application<MageConfiguration> {
         dbi.registerMapper(new AnnotationMapperFactory());
 
         // register managed entities
-        Cache cache = new Cache(redisCfg.getHost(), redisCfg.getDatabase());
+        Cache cache = new Cache(redisCfg.getHost(), redisCfg.getDatabase(), redisCfg.getPassword());
         TembaManager temba = new TembaManager(cache, tembaCfg.getApiUrl(), tembaCfg.getAuthToken(), generalCfg.isProduction());
         ServiceManager services = new ServiceManager(dbi, cache, temba, generalCfg.isProduction());
         TwitterManager twitter = new TwitterManager(services, cache, temba, twitterCfg.getApiKey(), twitterCfg.getApiSecret());

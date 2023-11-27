@@ -45,6 +45,7 @@ public abstract class BaseServicesTest extends BaseMageTest {
 
     protected static final String REDIS_HOST = "localhost";
     protected static final int REDIS_DATABASE = 13;
+    protected static final String REDIS_PASSWORD = null;
 
     private static IDatabaseConnection s_connection;
     private static IDataSet s_initialData;
@@ -82,7 +83,7 @@ public abstract class BaseServicesTest extends BaseMageTest {
         dbi.registerMapper(new AnnotationMapperFactory());
 
         // initialise the cache
-        s_cache = new Cache(REDIS_HOST, REDIS_DATABASE);
+        s_cache = new Cache(REDIS_HOST, REDIS_DATABASE, REDIS_PASSWORD);
         s_cache.start();
 
         s_temba = new TembaManager(s_cache, "http://temba.example.com/api/v1", "12345", false);
